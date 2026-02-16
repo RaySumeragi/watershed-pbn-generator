@@ -292,19 +292,36 @@ const App = {
 
             this.state.currentResult = result;
 
+            console.log('📊 Processing result:', {
+                regions: result.regions.length,
+                palette: result.palette.length,
+                width: result.width,
+                height: result.height
+            });
+
+            if (result.regions.length === 0) {
+                console.warn('⚠️ No regions found! Check marker creation and watershed.');
+                Utils.showToast('No regions detected. Try different settings or a different image.', 'warning', 5000);
+                return;
+            }
+
             // Generate SVG
+            console.log('🖼️ Generating SVG...');
             const svgGen = new SVGGenerator();
             const svg = svgGen.generateSVG(result.regions, result.palette, {
                 ...this.state.settings,
                 width: result.width,
                 height: result.height
             });
+            console.log('✅ SVG generated, length:', svg.length);
 
             // Generate legend
             const legend = svgGen.generateLegend(result.palette);
+            console.log('✅ Legend generated, length:', legend.length);
 
             // Display result
             this.displayResult(svg, legend);
+            console.log('✅ Display result called');
 
             // Enable download buttons
             document.getElementById('downloadSvgBtn').disabled = false;
@@ -325,24 +342,29 @@ const App = {
      * Display result
      */
     displayResult(svg, legend) {
+        console.log('🖥️ displayResult called');
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
 
         // Convert SVG to image
         const img = new Image();
         img.onload = () => {
+            console.log('✅ SVG image loaded:', img.width, 'x', img.height);
             canvas.width = img.width;
             canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
-            URL.revokeObjectURL(img.src); // Clean up
+            URL.revokeObjectURL(img.src);
+            console.log('✅ Canvas updated!');
         };
         img.onerror = (error) => {
-            console.error('SVG rendering error:', error);
+            console.error('❌ SVG rendering error:', error);
             Utils.showToast('Error rendering SVG preview', 'error');
         };
 
-        const blob = new Blob([svg], { type: 'image/svg+xml' });
-        img.src = URL.createObjectURL(blob);
+        const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        console.log('🔗 SVG blob URL created:', url);
+        img.src = url;
 
         // Store for downloads
         this.state.currentResult.svg = svg;
