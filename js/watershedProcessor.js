@@ -59,10 +59,10 @@ class WatershedProcessor {
 
             this.updateProgress(onProgress, 40, 'Creating markers...');
 
-            // Step 3: Create watershed markers
+            // Step 3: Create watershed markers from quantized color labels
             let markers;
             try {
-                markers = this.createMarkers(quantized, complexity);
+                markers = this.createMarkers(quantized, labels, colorCount, complexity);
                 console.log('Markers created');
             } catch (e) {
                 console.error('Marker creation failed:', e);
@@ -188,53 +188,76 @@ class WatershedProcessor {
     }
 
     /**
-     * Create watershed markers based on complexity
-     * Simple approach: Use morphological operations on quantized image
+     * Create watershed markers from quantized color labels
+     * Each connected component of the same color becomes a unique marker
      * @param {cv.Mat} quantized - Quantized color image (RGB)
+     * @param {cv.Mat} labels - K-means labels (numPixels x 1)
+     * @param {number} numColors - Number of colors
      * @param {string} complexity - 'low' | 'medium' | 'high' | 'extreme'
      * @returns {cv.Mat} Marker image (CV_32S)
      */
-    createMarkers(quantized, complexity) {
-        console.log('Creating markers (simple approach), complexity:', complexity);
-        console.log('Quantized image:', quantized.cols, 'x', quantized.rows, 'channels:', quantized.channels());
+    createMarkers(quantized, labels, numColors, complexity) {
+        console.log('Creating markers from color labels...');
+        const width = quantized.cols;
+        const height = quantized.rows;
 
-        // Convert to grayscale
-        const gray = new cv.Mat();
-        cv.cvtColor(quantized, gray, cv.COLOR_RGB2GRAY);
-
-        // Get kernel size based on complexity
-        const kernelSizes = {
-            low: 11,     // Large kernel = fewer, larger regions
-            medium: 7,   // Medium kernel
-            high: 5,     // Small kernel = more, smaller regions
-            extreme: 3   // Very small kernel
+        // Erode size based on complexity (larger erosion = more boundary area for watershed)
+        const erodeSizes = {
+            low: 5,
+            medium: 3,
+            high: 2,
+            extreme: 1
         };
-        const kernelSize = kernelSizes[complexity] || 5;
+        const erodeSize = erodeSizes[complexity] || 3;
 
-        // Apply morphological gradient to find boundaries
-        const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kernelSize, kernelSize));
-        const gradient = new cv.Mat();
-        cv.morphologyEx(gray, gradient, cv.MORPH_GRADIENT, kernel);
+        // Create marker image
+        const markers = new cv.Mat.zeros(height, width, cv.CV_32S);
+        let nextLabel = 1; // Markers start at 1 (0 = unknown for watershed)
 
-        // Threshold to get binary markers
-        const binary = new cv.Mat();
-        cv.threshold(gradient, binary, 10, 255, cv.THRESH_BINARY_INV);
+        // For each color, find connected components and assign unique labels
+        for (let colorIdx = 0; colorIdx < numColors; colorIdx++) {
+            // Create binary mask for this color
+            const mask = new cv.Mat.zeros(height, width, cv.CV_8UC1);
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const pixelIdx = y * width + x;
+                    if (labels.intAt(pixelIdx, 0) === colorIdx) {
+                        mask.ucharPtr(y, x)[0] = 255;
+                    }
+                }
+            }
 
-        // Label connected components
-        const markersTemp = new cv.Mat();
-        const numMarkers = cv.connectedComponents(binary, markersTemp, 8, cv.CV_32S);
-        console.log(`Created ${numMarkers} initial markers`);
+            // Erode to create sure foreground (shrink regions)
+            if (erodeSize > 0) {
+                const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,
+                    new cv.Size(erodeSize * 2 + 1, erodeSize * 2 + 1));
+                cv.erode(mask, mask, kernel);
+                kernel.delete();
+            }
 
-        // markersTemp is already CV_32S, so we can use it directly
-        console.log('Markers ready for watershed');
+            // Find connected components in this color mask
+            const colorLabels = new cv.Mat();
+            const numComponents = cv.connectedComponents(mask, colorLabels, 8, cv.CV_32S);
 
-        // Cleanup
-        gray.delete();
-        kernel.delete();
-        gradient.delete();
-        binary.delete();
+            // Assign unique marker labels (skip component 0 = background)
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const component = colorLabels.intAt(y, x);
+                    if (component > 0) {
+                        markers.intPtr(y, x)[0] = nextLabel + component - 1;
+                    }
+                }
+            }
 
-        return markersTemp;
+            nextLabel += numComponents - 1; // -1 because component 0 is background
+
+            mask.delete();
+            colorLabels.delete();
+        }
+
+        console.log(`Created ${nextLabel - 1} unique markers from ${numColors} colors`);
+        console.log('Complexity:', complexity, '(erode:', erodeSize, 'px)');
+        return markers;
     }
 
     /**
