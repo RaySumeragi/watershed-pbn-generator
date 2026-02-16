@@ -49,23 +49,35 @@ class ColorQuantizer {
         }
 
         // Reshape to 2D array for K-Means (each pixel is a row)
-        // In OpenCV.js, reshape needs to be done manually
-        const numPixels = lab.rows * lab.cols;
-        const samples = new cv.Mat(numPixels, 3, cv.CV_32F);
-
+        // OpenCV.js reshape: reshape(cn, rows)
         console.log('Reshaping Lab image for K-Means...');
+        const numPixels = lab.rows * lab.cols;
         console.log('Total pixels:', numPixels);
 
-        // Copy pixel data row by row
-        for (let i = 0; i < numPixels; i++) {
-            const y = Math.floor(i / lab.cols);
-            const x = i % lab.cols;
-            samples.floatPtr(i, 0)[0] = lab.ucharPtr(y, x)[0]; // L
-            samples.floatPtr(i, 0)[1] = lab.ucharPtr(y, x)[1]; // a
-            samples.floatPtr(i, 0)[2] = lab.ucharPtr(y, x)[2]; // b
+        // Use OpenCV's reshape method (if available) or manual method
+        let samples;
+        try {
+            // Try OpenCV's built-in reshape
+            samples = lab.reshape(1, numPixels);
+            samples.convertTo(samples, cv.CV_32F);
+            console.log('✅ Used OpenCV reshape');
+        } catch (e) {
+            // Fallback: Create Float32Array and use cv.matFromArray (much faster!)
+            console.log('Using fast Float32Array method...');
+            const data = new Float32Array(numPixels * 3);
+            let idx = 0;
+            for (let y = 0; y < lab.rows; y++) {
+                for (let x = 0; x < lab.cols; x++) {
+                    data[idx++] = lab.ucharPtr(y, x)[0]; // L
+                    data[idx++] = lab.ucharPtr(y, x)[1]; // a
+                    data[idx++] = lab.ucharPtr(y, x)[2]; // b
+                }
+            }
+            samples = cv.matFromArray(numPixels, 3, cv.CV_32F, data);
+            console.log('✅ Used Float32Array method');
         }
 
-        console.log('Samples reshaped:', samples.rows, 'x', samples.cols);
+        console.log('Samples ready:', samples.rows, 'x', samples.cols);
 
         // K-Means clustering
         console.log('Running K-Means clustering...');
