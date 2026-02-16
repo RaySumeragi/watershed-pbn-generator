@@ -206,42 +206,76 @@ class WatershedProcessor {
             throw new Error('Grayscale conversion failed: ' + e);
         }
 
-        // Apply threshold to create binary image
-        const binary = new cv.Mat();
-        cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+        // Apply morphological opening to remove noise
+        const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+        const opening = new cv.Mat();
+        cv.morphologyEx(gray, opening, cv.MORPH_OPEN, kernel);
 
-        // Distance transform
+        // Sure background area (dilate)
+        const sureBg = new cv.Mat();
+        cv.dilate(opening, sureBg, kernel, new cv.Point(-1, -1), 3);
+
+        // Distance transform to find sure foreground
         const dist = new cv.Mat();
-        cv.distanceTransform(binary, dist, cv.DIST_L2, 5);
+        cv.distanceTransform(opening, dist, cv.DIST_L2, 5);
 
-        // Normalize distance transform
-        cv.normalize(dist, dist, 0, 1, cv.NORM_MINMAX);
-
-        // Threshold based on complexity to get markers
+        // Threshold to get sure foreground
         const thresholdValue = this.getComplexityThreshold(complexity);
+        const sureFg = new cv.Mat();
+
+        // Normalize and threshold
+        let maxVal = 0;
+        for (let y = 0; y < dist.rows; y++) {
+            for (let x = 0; x < dist.cols; x++) {
+                const val = dist.floatAt(y, x);
+                if (val > maxVal) maxVal = val;
+            }
+        }
+        console.log('Distance transform max:', maxVal);
+
+        const threshold = maxVal * thresholdValue;
+        console.log('Threshold value:', threshold);
+        cv.threshold(dist, sureFg, threshold, 255, cv.THRESH_BINARY);
+        sureFg.convertTo(sureFg, cv.CV_8U);
+
+        // Unknown region (background - foreground)
+        const unknown = new cv.Mat();
+        cv.subtract(sureBg, sureFg, unknown);
+
+        // Label markers (connected components)
         const markers = new cv.Mat();
-        cv.threshold(dist, markers, thresholdValue, 255, cv.THRESH_BINARY);
-
-        // Convert to 8-bit
-        markers.convertTo(markers, cv.CV_8U);
-
-        // Dilate markers slightly to ensure separation
-        const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
-        cv.dilate(markers, markers, kernel);
-
-        // Find connected components (label markers)
-        const markerLabels = new cv.Mat();
-        const numMarkers = cv.connectedComponents(markers, markerLabels);
+        const numMarkers = cv.connectedComponents(sureFg, markers);
         console.log(`Created ${numMarkers} markers for complexity: ${complexity}`);
+
+        // Add 1 to all labels so background is not 0
+        for (let y = 0; y < markers.rows; y++) {
+            for (let x = 0; x < markers.cols; x++) {
+                const val = markers.intAt(y, x);
+                markers.intPtr(y, x)[0] = val + 1;
+            }
+        }
+
+        // Mark unknown region as 0
+        for (let y = 0; y < unknown.rows; y++) {
+            for (let x = 0; x < unknown.cols; x++) {
+                if (unknown.ucharAt(y, x) > 0) {
+                    markers.intPtr(y, x)[0] = 0;
+                }
+            }
+        }
+
+        console.log('Markers prepared for watershed');
 
         // Cleanup
         gray.delete();
-        binary.delete();
-        dist.delete();
-        markers.delete();
         kernel.delete();
+        opening.delete();
+        sureBg.delete();
+        dist.delete();
+        sureFg.delete();
+        unknown.delete();
 
-        return markerLabels;
+        return markers;
     }
 
     /**
@@ -251,18 +285,18 @@ class WatershedProcessor {
      */
     getComplexityThreshold(complexity) {
         const thresholds = {
-            low: 0.7,      // Fewer markers = larger regions
-            medium: 0.5,   // Balanced
-            high: 0.3,     // More markers = more detail
-            extreme: 0.1   // Maximum detail
+            low: 0.6,      // Fewer markers = larger regions
+            medium: 0.4,   // Balanced
+            high: 0.2,     // More markers = more detail
+            extreme: 0.05  // Maximum detail
         };
-        return thresholds[complexity] || 0.5;
+        return thresholds[complexity] || 0.4;
     }
 
     /**
      * Apply watershed algorithm
      * @param {cv.Mat} quantized - Quantized image
-     * @param {cv.Mat} markers - Marker labels
+     * @param {cv.Mat} markers - Marker labels (must be CV_32S)
      * @returns {cv.Mat} Watershed result
      */
     applyWatershed(quantized, markers) {
@@ -270,7 +304,7 @@ class WatershedProcessor {
         console.log('Quantized:', quantized.cols, 'x', quantized.rows, 'channels:', quantized.channels());
         console.log('Markers type:', markers.type(), 'size:', markers.cols, 'x', markers.rows);
 
-        // Ensure quantized is 3-channel
+        // Ensure quantized is 3-channel RGB
         let rgb;
         try {
             if (quantized.channels() === 4) {
@@ -287,14 +321,14 @@ class WatershedProcessor {
             throw new Error('RGB preparation failed: ' + e);
         }
 
-        // Markers must be CV_32S
-        const markers32 = new cv.Mat();
-        try {
+        // Markers should already be CV_32S from createMarkers, but verify
+        let markers32 = markers;
+        if (markers.type() !== cv.CV_32S) {
+            console.log('Converting markers to CV_32S...');
+            markers32 = new cv.Mat();
             markers.convertTo(markers32, cv.CV_32S);
-            console.log('Converted markers to CV_32S');
-        } catch (e) {
-            rgb.delete();
-            throw new Error('Marker conversion failed: ' + e);
+        } else {
+            console.log('Markers already CV_32S');
         }
 
         // Apply watershed
@@ -302,9 +336,21 @@ class WatershedProcessor {
             console.log('Calling cv.watershed...');
             cv.watershed(rgb, markers32);
             console.log('Watershed completed');
+
+            // Check result
+            let minLabel = Infinity;
+            let maxLabel = -Infinity;
+            for (let y = 0; y < markers32.rows; y++) {
+                for (let x = 0; x < markers32.cols; x++) {
+                    const label = markers32.intAt(y, x);
+                    if (label < minLabel) minLabel = label;
+                    if (label > maxLabel) maxLabel = label;
+                }
+            }
+            console.log(`Watershed labels range: ${minLabel} to ${maxLabel}`);
         } catch (e) {
             rgb.delete();
-            markers32.delete();
+            if (markers32 !== markers) markers32.delete();
             throw new Error('cv.watershed failed: ' + e);
         }
 
