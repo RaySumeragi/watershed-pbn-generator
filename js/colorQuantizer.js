@@ -49,10 +49,26 @@ class ColorQuantizer {
         }
 
         // Reshape to 2D array for K-Means (each pixel is a row)
-        const samples = lab.reshape(3, lab.rows * lab.cols);
-        samples.convertTo(samples, cv.CV_32F);
+        // In OpenCV.js, reshape needs to be done manually
+        const numPixels = lab.rows * lab.cols;
+        const samples = new cv.Mat(numPixels, 3, cv.CV_32F);
+
+        console.log('Reshaping Lab image for K-Means...');
+        console.log('Total pixels:', numPixels);
+
+        // Copy pixel data row by row
+        for (let i = 0; i < numPixels; i++) {
+            const y = Math.floor(i / lab.cols);
+            const x = i % lab.cols;
+            samples.floatPtr(i, 0)[0] = lab.ucharPtr(y, x)[0]; // L
+            samples.floatPtr(i, 0)[1] = lab.ucharPtr(y, x)[1]; // a
+            samples.floatPtr(i, 0)[2] = lab.ucharPtr(y, x)[2]; // b
+        }
+
+        console.log('Samples reshaped:', samples.rows, 'x', samples.cols);
 
         // K-Means clustering
+        console.log('Running K-Means clustering...');
         const labels = new cv.Mat();
         const centers = new cv.Mat();
         const criteria = new cv.TermCriteria(
@@ -61,14 +77,25 @@ class ColorQuantizer {
             0.2
         );
 
-        cv.kmeans(
-            samples,
-            numColors,
-            labels,
-            criteria,
-            3, // Attempts
-            cv.KMEANS_PP_CENTERS // Use K-Means++ initialization
-        );
+        try {
+            cv.kmeans(
+                samples,
+                numColors,
+                labels,
+                criteria,
+                3, // Attempts
+                cv.KMEANS_PP_CENTERS // Use K-Means++ initialization
+            );
+            console.log('K-Means complete. Centers:', centers.rows, 'Labels:', labels.rows);
+        } catch (e) {
+            src.delete();
+            rgb.delete();
+            lab.delete();
+            samples.delete();
+            labels.delete();
+            centers.delete();
+            throw new Error('K-Means clustering failed: ' + e);
+        }
 
         // Extract palette colors (convert Lab back to RGB)
         const palette = [];
