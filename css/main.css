@@ -430,6 +430,10 @@ h3 { font-size: 1rem; }
     backdrop-filter: blur(4px);
 }
 
+.loading-overlay[hidden] {
+    display: none !important;
+}
+
 .loading-spinner {
     width: 44px;
     height: 44px;

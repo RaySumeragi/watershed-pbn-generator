@@ -96,9 +96,10 @@ class ColorQuantizer {
                 labels,
                 criteria,
                 3, // Attempts
-                cv.KMEANS_PP_CENTERS // Use K-Means++ initialization
+                cv.KMEANS_PP_CENTERS,
+                centers // 7th param: output centers!
             );
-            console.log('K-Means complete. Centers:', centers.rows, 'Labels:', labels.rows);
+            console.log('K-Means complete. Centers:', centers.rows, 'x', centers.cols, 'Labels:', labels.rows);
         } catch (e) {
             src.delete();
             rgb.delete();
@@ -109,34 +110,54 @@ class ColorQuantizer {
             throw new Error('K-Means clustering failed: ' + e);
         }
 
-        // Extract palette colors (convert Lab back to RGB)
+        // Calculate palette colors from actual pixel data per cluster
+        // (More reliable than centers which may not populate in OpenCV.js)
         const palette = [];
-        for (let i = 0; i < numColors; i++) {
-            const l = centers.floatAt(i, 0);
-            const a = centers.floatAt(i, 1);
-            const b = centers.floatAt(i, 2);
+        const colorSums = new Array(numColors).fill(null).map(() => ({ r: 0, g: 0, b: 0, count: 0 }));
 
-            // Convert Lab to RGB
-            const rgb = this.labToRgb(l, a, b);
+        // Sum RGB values per cluster from original image
+        const totalPixels = rgb.rows * rgb.cols;
+        for (let i = 0; i < totalPixels; i++) {
+            const label = labels.intAt(i, 0);
+            if (label >= 0 && label < numColors) {
+                const y = Math.floor(i / rgb.cols);
+                const x = i % rgb.cols;
+                colorSums[label].r += rgb.ucharPtr(y, x)[0];
+                colorSums[label].g += rgb.ucharPtr(y, x)[1];
+                colorSums[label].b += rgb.ucharPtr(y, x)[2];
+                colorSums[label].count++;
+            }
+        }
+
+        // Build palette from averaged colors
+        for (let i = 0; i < numColors; i++) {
+            const sum = colorSums[i];
+            const avgRgb = sum.count > 0 ? {
+                r: Math.round(sum.r / sum.count),
+                g: Math.round(sum.g / sum.count),
+                b: Math.round(sum.b / sum.count)
+            } : { r: 128, g: 128, b: 128 };
+
             palette.push({
                 id: i + 1,
-                rgb: rgb,
-                hex: Utils.rgbToHex(rgb.r, rgb.g, rgb.b),
-                name: Utils.getColorName(rgb.r, rgb.g, rgb.b)
+                rgb: avgRgb,
+                hex: Utils.rgbToHex(avgRgb.r, avgRgb.g, avgRgb.b),
+                name: Utils.getColorName(avgRgb.r, avgRgb.g, avgRgb.b)
             });
+
+            console.log(`  Color ${i + 1}: ${Utils.rgbToHex(avgRgb.r, avgRgb.g, avgRgb.b)} (${sum.count} px)`);
         }
 
         // Create quantized image
-        const quantized = new cv.Mat(lab.rows, lab.cols, cv.CV_8UC3);
-        for (let y = 0; y < lab.rows; y++) {
-            for (let x = 0; x < lab.cols; x++) {
-                const idx = y * lab.cols + x;
-                const label = labels.intAt(idx, 0);
-                const color = palette[label].rgb;
-                quantized.ucharPtr(y, x)[0] = color.r;
-                quantized.ucharPtr(y, x)[1] = color.g;
-                quantized.ucharPtr(y, x)[2] = color.b;
-            }
+        const quantized = new cv.Mat(rgb.rows, rgb.cols, cv.CV_8UC3);
+        for (let i = 0; i < totalPixels; i++) {
+            const label = labels.intAt(i, 0);
+            const y = Math.floor(i / rgb.cols);
+            const x = i % rgb.cols;
+            const color = palette[label].rgb;
+            quantized.ucharPtr(y, x)[0] = color.r;
+            quantized.ucharPtr(y, x)[1] = color.g;
+            quantized.ucharPtr(y, x)[2] = color.b;
         }
 
         // Cleanup

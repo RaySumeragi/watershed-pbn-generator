@@ -144,6 +144,7 @@ const App = {
         document.getElementById('downloadSvgBtn').addEventListener('click', () => this.downloadSVG());
         document.getElementById('downloadPngBtn').addEventListener('click', () => this.downloadPNG());
         document.getElementById('downloadLegendBtn').addEventListener('click', () => this.downloadLegend());
+        document.getElementById('downloadAllBtn').addEventListener('click', () => this.downloadAll());
         document.getElementById('resetBtn').addEventListener('click', () => this.reset());
         document.getElementById('removeImageBtn').addEventListener('click', () => this.removeImage());
 
@@ -328,6 +329,7 @@ const App = {
             document.getElementById('downloadSvgBtn').disabled = false;
             document.getElementById('downloadPngBtn').disabled = false;
             document.getElementById('downloadLegendBtn').disabled = false;
+            document.getElementById('downloadAllBtn').disabled = false;
 
             Utils.showToast('Paint-by-numbers generated successfully!', 'success');
 
@@ -436,6 +438,65 @@ const App = {
     downloadLegend() {
         if (!this.state.currentResult || !this.state.currentResult.legend) return;
         Utils.downloadSvg(this.state.currentResult.legend, 'color-legend.svg');
+    },
+
+    /**
+     * Download All - Combined PNG (110% width) with legend below
+     */
+    async downloadAll() {
+        if (!this.state.currentResult || !this.state.currentResult.svg) return;
+
+        const result = this.state.currentResult;
+        const pbnCanvas = document.getElementById('previewCanvas');
+
+        // Target width: 110% of original
+        const targetWidth = Math.round(result.width * 1.1);
+        const pbnHeight = Math.round(pbnCanvas.height * (targetWidth / pbnCanvas.width));
+
+        // Render legend SVG to get its dimensions
+        const legendImg = await this.svgToImage(result.legend);
+        const legendScale = targetWidth / legendImg.width;
+        const legendHeight = Math.round(legendImg.height * legendScale);
+
+        // Spacing between PBN and legend
+        const spacing = 24;
+
+        // Create combined canvas
+        const totalHeight = pbnHeight + spacing + legendHeight;
+        const combinedCanvas = document.createElement('canvas');
+        combinedCanvas.width = targetWidth;
+        combinedCanvas.height = totalHeight;
+        const ctx = combinedCanvas.getContext('2d');
+
+        // White background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetWidth, totalHeight);
+
+        // Draw PBN scaled to 110% width
+        ctx.drawImage(pbnCanvas, 0, 0, targetWidth, pbnHeight);
+
+        // Draw legend below
+        ctx.drawImage(legendImg, 0, pbnHeight + spacing, targetWidth, legendHeight);
+
+        // Download
+        Utils.downloadCanvas(combinedCanvas, 'paint-by-numbers-complete.png');
+        Utils.showToast('Downloaded PNG + Legend!', 'success');
+    },
+
+    /**
+     * Convert SVG string to Image element
+     */
+    svgToImage(svgString) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                URL.revokeObjectURL(img.src);
+                resolve(img);
+            };
+            img.onerror = reject;
+            const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+            img.src = URL.createObjectURL(blob);
+        });
     },
 
     /**
