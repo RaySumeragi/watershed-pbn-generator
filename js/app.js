@@ -301,6 +301,7 @@ const App = {
 
             if (result.regions.length === 0) {
                 console.warn('⚠️ No regions found! Check marker creation and watershed.');
+                loadingOverlay.hidden = true;
                 Utils.showToast('No regions detected. Try different settings or a different image.', 'warning', 5000);
                 return;
             }

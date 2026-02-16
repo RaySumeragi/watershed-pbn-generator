@@ -210,9 +210,10 @@ class WatershedProcessor {
         };
         const erodeSize = erodeSizes[complexity] || 3;
 
-        // Create marker image
+        // Create marker image and color mapping
         const markers = new cv.Mat.zeros(height, width, cv.CV_32S);
-        let nextLabel = 1; // Markers start at 1 (0 = unknown for watershed)
+        const markerToColor = {}; // Maps marker label → palette color index (1-based)
+        let nextLabel = 1;
 
         // For each color, find connected components and assign unique labels
         for (let colorIdx = 0; colorIdx < numColors; colorIdx++) {
@@ -239,7 +240,12 @@ class WatershedProcessor {
             const colorLabels = new cv.Mat();
             const numComponents = cv.connectedComponents(mask, colorLabels, 8, cv.CV_32S);
 
-            // Assign unique marker labels (skip component 0 = background)
+            // Assign unique marker labels and track color mapping
+            for (let comp = 1; comp < numComponents; comp++) {
+                const markerLabel = nextLabel + comp - 1;
+                markerToColor[markerLabel] = colorIdx + 1; // 1-based palette index
+            }
+
             for (let y = 0; y < height; y++) {
                 for (let x = 0; x < width; x++) {
                     const component = colorLabels.intAt(y, x);
@@ -249,7 +255,7 @@ class WatershedProcessor {
                 }
             }
 
-            nextLabel += numComponents - 1; // -1 because component 0 is background
+            nextLabel += numComponents - 1;
 
             mask.delete();
             colorLabels.delete();
@@ -257,6 +263,10 @@ class WatershedProcessor {
 
         console.log(`Created ${nextLabel - 1} unique markers from ${numColors} colors`);
         console.log('Complexity:', complexity, '(erode:', erodeSize, 'px)');
+
+        // Store the color map on the instance for use in extractRegions
+        this._markerToColor = markerToColor;
+
         return markers;
     }
 
@@ -354,41 +364,32 @@ class WatershedProcessor {
         const regions = [];
         const width = watershedMap.cols;
         const height = watershedMap.rows;
-        const visited = new Set();
+        const markerToColor = this._markerToColor || {};
 
         // Get unique labels (excluding -1 which is boundary)
-        const labels = new Set();
+        const uniqueLabels = new Set();
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
                 const label = watershedMap.intAt(y, x);
                 if (label > 0) {
-                    labels.add(label);
+                    uniqueLabels.add(label);
                 }
             }
         }
 
-        console.log(`Found ${labels.size} regions from watershed`);
+        console.log(`Found ${uniqueLabels.size} regions from watershed`);
 
         // Extract each region
-        labels.forEach(label => {
+        uniqueLabels.forEach(label => {
             // Create mask for this region
             const mask = new cv.Mat.zeros(height, width, cv.CV_8UC1);
             let pixelCount = 0;
-            let colorSum = { r: 0, g: 0, b: 0 };
 
             for (let y = 0; y < height; y++) {
                 for (let x = 0; x < width; x++) {
                     if (watershedMap.intAt(y, x) === label) {
                         mask.ucharPtr(y, x)[0] = 255;
                         pixelCount++;
-
-                        // Sum colors for average
-                        const r = quantized.ucharPtr(y, x)[0];
-                        const g = quantized.ucharPtr(y, x)[1];
-                        const b = quantized.ucharPtr(y, x)[2];
-                        colorSum.r += r;
-                        colorSum.g += g;
-                        colorSum.b += b;
                     }
                 }
             }
@@ -407,15 +408,11 @@ class WatershedProcessor {
             if (contours.size() > 0) {
                 const contour = contours.get(0);
 
-                // Calculate average color
-                const avgColor = {
-                    r: Math.round(colorSum.r / pixelCount),
-                    g: Math.round(colorSum.g / pixelCount),
-                    b: Math.round(colorSum.b / pixelCount)
-                };
+                // Get color ID from marker-to-color mapping (direct, no guessing)
+                let colorId = markerToColor[label] || 1;
 
-                // Find closest palette color
-                const colorId = this.findClosestColor(avgColor, palette);
+                // Clamp to valid palette range
+                if (colorId < 1 || colorId > palette.length) colorId = 1;
 
                 // Calculate centroid for number placement
                 const moments = cv.moments(contour);
