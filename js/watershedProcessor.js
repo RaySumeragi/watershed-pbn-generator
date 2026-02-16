@@ -130,35 +130,59 @@ class WatershedProcessor {
      * @returns {ImageData}
      */
     async preprocessImage(imageData, maxSize) {
-        const src = cv.matFromImageData(imageData);
+        console.log('Preprocessing image:', imageData.width, 'x', imageData.height);
 
-        // Resize if needed
-        let resized = src;
-        if (src.rows > maxSize || src.cols > maxSize) {
-            resized = new cv.Mat();
-            const scale = maxSize / Math.max(src.rows, src.cols);
-            const newSize = new cv.Size(
-                Math.floor(src.cols * scale),
-                Math.floor(src.rows * scale)
-            );
-            cv.resize(src, resized, newSize, 0, 0, cv.INTER_AREA);
+        const src = cv.matFromImageData(imageData);
+        console.log('Source mat:', src.cols, 'x', src.rows, 'channels:', src.channels());
+
+        // Convert RGBA to RGB if needed (bilateralFilter requires 1 or 3 channels)
+        let rgb = src;
+        if (src.channels() === 4) {
+            console.log('Converting RGBA to RGB...');
+            rgb = new cv.Mat();
+            cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
             src.delete();
         }
 
+        // Resize if needed
+        let resized = rgb;
+        if (rgb.rows > maxSize || rgb.cols > maxSize) {
+            console.log('Resizing image...');
+            resized = new cv.Mat();
+            const scale = maxSize / Math.max(rgb.rows, rgb.cols);
+            const newSize = new cv.Size(
+                Math.floor(rgb.cols * scale),
+                Math.floor(rgb.rows * scale)
+            );
+            cv.resize(rgb, resized, newSize, 0, 0, cv.INTER_AREA);
+            console.log('Resized to:', newSize.width, 'x', newSize.height);
+            rgb.delete();
+        }
+
         // Apply bilateral filter (noise reduction, edge preservation)
+        console.log('Applying bilateral filter...');
         const filtered = new cv.Mat();
         cv.bilateralFilter(resized, filtered, 9, 75, 75);
+        console.log('Bilateral filter applied');
+
+        // Convert back to RGBA for canvas
+        const rgba = new cv.Mat();
+        cv.cvtColor(filtered, rgba, cv.COLOR_RGB2RGBA);
 
         // Convert to ImageData
         const canvas = document.createElement('canvas');
-        canvas.width = filtered.cols;
-        canvas.height = filtered.rows;
+        canvas.width = rgba.cols;
+        canvas.height = rgba.rows;
         const ctx = canvas.getContext('2d');
-        cv.imshow(canvas, filtered);
+        cv.imshow(canvas, rgba);
         const result = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
+        console.log('Preprocessing complete:', result.width, 'x', result.height);
+
+        // Cleanup
         resized.delete();
         filtered.delete();
+        rgba.delete();
 
         return result;
     }
