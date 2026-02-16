@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Watershed Paint-by-Numbers Generator - Create professional coloring pages with no double edges. Browser-based, offline-capable.">
+    <title>Watershed PBN Generator - Professional Paint-by-Numbers</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components.css">
+
+    <meta name="theme-color" content="#3B82F6">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="logo-icon">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <path d="M9 9h.01M15 9h.01M9 15h.01M15 15h.01"/>
+                </svg>
+                <h1 class="logo-text">Watershed PBN Generator</h1>
+            </div>
+            <div class="header-badge">
+                <span class="badge" id="opencvStatus">Loading OpenCV...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Upload Section -->
+        <section class="upload-section">
+            <div class="mode-toggle">
+                <button class="mode-btn active" data-mode="single">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    </svg>
+                    Single Image
+                </button>
+                <button class="mode-btn" data-mode="batch">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="8" y="8" width="13" height="13" rx="2"/>
+                        <path d="M4 16V4a2 2 0 0 1 2-2h12"/>
+                    </svg>
+                    Batch Mode
+                </button>
+            </div>
+
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-placeholder" id="uploadPlaceholder">
+                    <svg class="upload-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <h3>Drag & Drop your image here</h3>
+                    <p>or</p>
+                    <label class="browse-btn">
+                        Browse Files
+                        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" hidden>
+                    </label>
+                    <p class="upload-hint">Supports: JPG, PNG, WebP (Max 10MB)</p>
+                </div>
+
+                <!-- Single Image Preview -->
+                <div class="image-preview-container" id="imagePreviewContainer" hidden>
+                    <img id="originalImage" alt="Original uploaded image">
+                    <button class="remove-image-btn" id="removeImageBtn" aria-label="Remove image">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Batch Mode List -->
+                <div class="batch-list-container" id="batchListContainer" hidden>
+                    <div class="batch-header">
+                        <h3>Batch Queue (<span id="batchCount">0</span> images)</h3>
+                        <button class="btn btn-small btn-danger" id="clearBatchBtn">Clear All</button>
+                    </div>
+                    <div class="batch-list" id="batchList"></div>
+                    <button class="btn btn-primary" id="processBatchBtn" disabled>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                        Process All Images
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Preview Section -->
+        <section class="preview-section">
+            <div class="preview-header">
+                <div class="preview-tabs">
+                    <button class="tab-btn active" data-tab="result">Result</button>
+                    <button class="tab-btn" data-tab="original">Original</button>
+                    <button class="tab-btn" data-tab="legend">Color Legend</button>
+                </div>
+            </div>
+            <div class="preview-canvas-container">
+                <div class="canvas-wrapper" id="canvasWrapper">
+                    <canvas id="previewCanvas"></canvas>
+                    <canvas id="originalCanvas" hidden></canvas>
+                    <div id="legendContainer" class="legend-container" hidden></div>
+
+                    <div class="canvas-placeholder" id="canvasPlaceholder">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <path d="M9 9h.01M15 9h.01M9 15h.01M15 15h.01"/>
+                        </svg>
+                        <p>Upload an image to generate paint-by-numbers</p>
+                    </div>
+                </div>
+
+                <!-- Loading Overlay -->
+                <div class="loading-overlay" id="loadingOverlay" hidden>
+                    <div class="loading-spinner"></div>
+                    <p class="loading-text" id="loadingText">Processing...</p>
+                    <p class="loading-subtext" id="loadingSubtext">Step 1/5: Preprocessing</p>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Controls Section -->
+        <section class="controls-section">
+            <div class="controls-panel">
+                <h2 class="controls-title">Settings</h2>
+
+                <!-- Presets -->
+                <div class="control-group">
+                    <label class="control-label">Presets</label>
+                    <div class="presets-grid">
+                        <button class="preset-btn" data-preset="kids">
+                            <span class="preset-emoji">👶</span>
+                            Kids
+                        </button>
+                        <button class="preset-btn" data-preset="teens">
+                            <span class="preset-emoji">👦</span>
+                            Teens
+                        </button>
+                        <button class="preset-btn active" data-preset="adults">
+                            <span class="preset-emoji">👤</span>
+                            Adults
+                        </button>
+                        <button class="preset-btn" data-preset="expert">
+                            <span class="preset-emoji">🎯</span>
+                            Expert
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Number of Colors -->
+                <div class="control-group">
+                    <label class="control-label">
+                        Number of Colors
+                        <span class="control-value" id="colorCountValue">14</span>
+                    </label>
+                    <input type="range" id="colorCountSlider" class="control-slider" min="6" max="16" value="14">
+                    <div class="slider-labels">
+                        <span>6</span>
+                        <span>16</span>
+                    </div>
+                </div>
+
+                <!-- Complexity -->
+                <div class="control-group">
+                    <label class="control-label" for="complexitySelect">Complexity Level</label>
+                    <select id="complexitySelect" class="control-select">
+                        <option value="low">Low (Fewer regions)</option>
+                        <option value="medium">Medium (Balanced)</option>
+                        <option value="high" selected>High (More detail)</option>
+                        <option value="extreme">Extreme (Maximum detail)</option>
+                    </select>
+                </div>
+
+                <!-- Min Region Size -->
+                <div class="control-group">
+                    <label class="control-label">
+                        Min Region Size
+                        <span class="control-value" id="minRegionValue">100 px</span>
+                    </label>
+                    <input type="range" id="minRegionSlider" class="control-slider" min="50" max="500" value="100" step="10">
+                    <div class="slider-labels">
+                        <span>Small</span>
+                        <span>Large</span>
+                    </div>
+                </div>
+
+                <!-- Line Width -->
+                <div class="control-group">
+                    <label class="control-label">
+                        Line Width
+                        <span class="control-value" id="lineWidthValue">1.5 px</span>
+                    </label>
+                    <input type="range" id="lineWidthSlider" class="control-slider" min="1" max="5" value="1.5" step="0.5">
+                </div>
+
+                <!-- Advanced Settings Toggle -->
+                <details class="advanced-settings">
+                    <summary class="advanced-toggle">Advanced Settings</summary>
+                    <div class="advanced-content">
+                        <!-- Show Numbers -->
+                        <div class="control-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="showNumbersCheck" checked>
+                                <span class="checkbox-custom"></span>
+                                Show Numbers
+                            </label>
+                        </div>
+
+                        <!-- Number Size -->
+                        <div class="control-group">
+                            <label class="control-label">
+                                Number Size
+                                <span class="control-value" id="numberSizeValue">12 pt</span>
+                            </label>
+                            <input type="range" id="numberSizeSlider" class="control-slider" min="8" max="20" value="12">
+                        </div>
+
+                        <!-- Show Preview Colors -->
+                        <div class="control-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="showColorsCheck">
+                                <span class="checkbox-custom"></span>
+                                Show Preview Colors
+                            </label>
+                        </div>
+
+                        <!-- Background Color -->
+                        <div class="control-group">
+                            <label class="control-label" for="bgColorInput">Background Color</label>
+                            <div class="color-input-wrapper">
+                                <input type="color" id="bgColorInput" class="color-input" value="#ffffff">
+                                <span class="color-value" id="bgColorValue">#ffffff</span>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="btn btn-primary" id="generateBtn" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                        Generate PBN
+                    </button>
+
+                    <div class="download-buttons">
+                        <button class="btn btn-success" id="downloadSvgBtn" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            SVG
+                        </button>
+                        <button class="btn btn-success" id="downloadPngBtn" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            PNG
+                        </button>
+                        <button class="btn btn-success" id="downloadLegendBtn" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            </svg>
+                            Legend
+                        </button>
+                    </div>
+
+                    <button class="btn btn-secondary" id="resetBtn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="1 4 1 10 7 10"/>
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                        </svg>
+                        Reset
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>Watershed PBN Generator | No Double Edges, Guaranteed</p>
+            <p class="footer-tech">Powered by OpenCV.js Watershed Algorithm</p>
+        </div>
+    </footer>
+
+    <!-- Optional: JSZip for batch downloads -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <!-- Scripts - Load order is critical! -->
+    <!-- 1. Utils first - defines onOpenCvReady callback -->
+    <script src="js/utils.js"></script>
+
+    <!-- 2. OpenCV.js - calls onOpenCvReady when ready -->
+    <script src="https://docs.opencv.org/4.9.0/opencv.js"></script>
+
+    <!-- 3. Other modules - can load immediately but wait for OpenCV at runtime -->
+    <script src="js/colorQuantizer.js"></script>
+    <script src="js/watershedProcessor.js"></script>
+    <script src="js/regionExtractor.js"></script>
+    <script src="js/svgGenerator.js"></script>
+    <script src="js/batchProcessor.js"></script>
+
+    <!-- 4. App last - orchestrates everything -->
+    <script src="js/app.js"></script>
+</body>
+</html>

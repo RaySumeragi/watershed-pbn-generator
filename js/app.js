@@ -1,0 +1,531 @@
+/* ============================================
+   App - Main Orchestrator
+   ============================================ */
+
+const App = {
+    state: {
+        currentImage: null,
+        currentResult: null,
+        mode: 'single', // 'single' or 'batch'
+        settings: {
+            colorCount: 14,
+            complexity: 'high',
+            minRegionSize: 100,
+            lineWidth: 1.5,
+            showNumbers: true,
+            numberSize: 12,
+            showColors: false,
+            backgroundColor: '#ffffff',
+            maxSize: 1024
+        },
+        batchProcessor: new BatchProcessor()
+    },
+
+    // Preset configurations
+    presets: {
+        kids: { colorCount: 6, complexity: 'low', minRegionSize: 200, lineWidth: 3, numberSize: 16 },
+        teens: { colorCount: 10, complexity: 'medium', minRegionSize: 150, lineWidth: 2, numberSize: 14 },
+        adults: { colorCount: 14, complexity: 'high', minRegionSize: 100, lineWidth: 1.5, numberSize: 12 },
+        expert: { colorCount: 16, complexity: 'extreme', minRegionSize: 50, lineWidth: 1, numberSize: 10 }
+    },
+
+    /**
+     * Initialize application
+     */
+    init() {
+        this.bindEvents();
+        this.updateUI();
+        this.waitForOpenCV();
+    },
+
+    /**
+     * Wait for OpenCV to load
+     */
+    waitForOpenCV() {
+        if (typeof cv !== 'undefined' && cv.Mat) {
+            this.onOpenCVReady();
+        } else {
+            window.addEventListener('opencv-ready', () => this.onOpenCVReady());
+        }
+    },
+
+    /**
+     * OpenCV ready callback
+     */
+    onOpenCVReady() {
+        console.log('App: OpenCV is ready');
+        document.getElementById('generateBtn').disabled = this.state.currentImage === null;
+    },
+
+    /**
+     * Bind UI event listeners
+     */
+    bindEvents() {
+        // File input
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.getElementById('uploadArea');
+
+        fileInput.addEventListener('change', (e) => this.handleFileSelect(e.target.files));
+
+        // Drag & drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            this.handleFileSelect(e.dataTransfer.files);
+        });
+
+        // Mode toggle
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.switchMode(btn.dataset.mode));
+        });
+
+        // Presets
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.applyPreset(e.target.dataset.preset));
+        });
+
+        // Settings
+        document.getElementById('colorCountSlider').addEventListener('input', (e) => {
+            this.state.settings.colorCount = parseInt(e.target.value);
+            document.getElementById('colorCountValue').textContent = e.target.value;
+        });
+
+        document.getElementById('complexitySelect').addEventListener('change', (e) => {
+            this.state.settings.complexity = e.target.value;
+        });
+
+        document.getElementById('minRegionSlider').addEventListener('input', (e) => {
+            this.state.settings.minRegionSize = parseInt(e.target.value);
+            document.getElementById('minRegionValue').textContent = e.target.value + ' px';
+        });
+
+        document.getElementById('lineWidthSlider').addEventListener('input', (e) => {
+            this.state.settings.lineWidth = parseFloat(e.target.value);
+            document.getElementById('lineWidthValue').textContent = e.target.value + ' px';
+        });
+
+        document.getElementById('numberSizeSlider').addEventListener('input', (e) => {
+            this.state.settings.numberSize = parseInt(e.target.value);
+            document.getElementById('numberSizeValue').textContent = e.target.value + ' pt';
+        });
+
+        document.getElementById('showNumbersCheck').addEventListener('change', (e) => {
+            this.state.settings.showNumbers = e.target.checked;
+        });
+
+        document.getElementById('showColorsCheck').addEventListener('change', (e) => {
+            this.state.settings.showColors = e.target.checked;
+        });
+
+        document.getElementById('bgColorInput').addEventListener('input', (e) => {
+            this.state.settings.backgroundColor = e.target.value;
+            document.getElementById('bgColorValue').textContent = e.target.value;
+        });
+
+        // Actions
+        document.getElementById('generateBtn').addEventListener('click', () => this.generate());
+        document.getElementById('downloadSvgBtn').addEventListener('click', () => this.downloadSVG());
+        document.getElementById('downloadPngBtn').addEventListener('click', () => this.downloadPNG());
+        document.getElementById('downloadLegendBtn').addEventListener('click', () => this.downloadLegend());
+        document.getElementById('resetBtn').addEventListener('click', () => this.reset());
+        document.getElementById('removeImageBtn').addEventListener('click', () => this.removeImage());
+
+        // Tabs
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
+        });
+
+        // Batch mode
+        document.getElementById('clearBatchBtn').addEventListener('click', () => this.clearBatch());
+        document.getElementById('processBatchBtn').addEventListener('click', () => this.processBatch());
+    },
+
+    /**
+     * Handle file selection
+     */
+    async handleFileSelect(files) {
+        if (files.length === 0) return;
+
+        if (this.state.mode === 'single') {
+            const file = files[0];
+
+            // Validate file size (max 10MB)
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            if (file.size > maxSize) {
+                Utils.showToast(`File too large (${Utils.formatFileSize(file.size)}). Max 10MB allowed.`, 'error');
+                return;
+            }
+
+            try {
+                const image = await Utils.loadImageFromFile(file);
+                this.state.currentImage = image;
+                this.displayOriginalImage(image);
+                document.getElementById('generateBtn').disabled = false;
+                Utils.showToast('Image loaded successfully', 'success');
+            } catch (error) {
+                Utils.showToast('Error loading image', 'error');
+                console.error(error);
+            }
+        } else {
+            // Batch mode
+            this.state.batchProcessor.addFiles(files);
+            this.updateBatchList();
+        }
+    },
+
+    /**
+     * Display original image
+     */
+    displayOriginalImage(image) {
+        const preview = document.getElementById('originalImage');
+        const container = document.getElementById('imagePreviewContainer');
+        const placeholder = document.getElementById('uploadPlaceholder');
+
+        preview.src = image.src;
+        container.hidden = false;
+        placeholder.hidden = true;
+    },
+
+    /**
+     * Remove current image
+     */
+    removeImage() {
+        this.state.currentImage = null;
+        this.state.currentResult = null;
+
+        document.getElementById('imagePreviewContainer').hidden = true;
+        document.getElementById('uploadPlaceholder').hidden = false;
+        document.getElementById('generateBtn').disabled = true;
+        document.getElementById('fileInput').value = '';
+
+        this.clearCanvas();
+    },
+
+    /**
+     * Switch mode (single/batch)
+     */
+    switchMode(mode) {
+        this.state.mode = mode;
+
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+
+        document.getElementById('imagePreviewContainer').hidden = mode === 'batch';
+        document.getElementById('batchListContainer').hidden = mode === 'single';
+        document.getElementById('uploadPlaceholder').hidden = false;
+
+        // Update file input for batch mode
+        const fileInput = document.getElementById('fileInput');
+        fileInput.multiple = mode === 'batch';
+    },
+
+    /**
+     * Apply preset
+     */
+    applyPreset(presetName) {
+        const preset = this.presets[presetName];
+        if (!preset) return;
+
+        Object.assign(this.state.settings, preset);
+
+        // Update UI
+        document.getElementById('colorCountSlider').value = preset.colorCount;
+        document.getElementById('colorCountValue').textContent = preset.colorCount;
+        document.getElementById('complexitySelect').value = preset.complexity;
+        document.getElementById('minRegionSlider').value = preset.minRegionSize;
+        document.getElementById('minRegionValue').textContent = preset.minRegionSize + ' px';
+        document.getElementById('lineWidthSlider').value = preset.lineWidth;
+        document.getElementById('lineWidthValue').textContent = preset.lineWidth + ' px';
+        document.getElementById('numberSizeSlider').value = preset.numberSize;
+        document.getElementById('numberSizeValue').textContent = preset.numberSize + ' pt';
+
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.preset === presetName);
+        });
+
+        Utils.showToast(`Applied ${presetName} preset`, 'info', 2000);
+    },
+
+    /**
+     * Generate paint-by-numbers
+     */
+    async generate() {
+        if (!this.state.currentImage) return;
+
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const loadingSubtext = document.getElementById('loadingSubtext');
+        const progressBar = document.getElementById('progressBar');
+
+        try {
+            loadingOverlay.hidden = false;
+
+            const processor = new WatershedProcessor();
+            const imageData = Utils.getImageData(this.state.currentImage, this.state.settings.maxSize);
+
+            const result = await processor.process(
+                imageData,
+                this.state.settings,
+                (progress) => {
+                    progressBar.style.width = progress.percent + '%';
+                    loadingSubtext.textContent = progress.message;
+                }
+            );
+
+            this.state.currentResult = result;
+
+            // Generate SVG
+            const svgGen = new SVGGenerator();
+            const svg = svgGen.generateSVG(result.regions, result.palette, {
+                ...this.state.settings,
+                width: result.width,
+                height: result.height
+            });
+
+            // Generate legend
+            const legend = svgGen.generateLegend(result.palette);
+
+            // Display result
+            this.displayResult(svg, legend);
+
+            // Enable download buttons
+            document.getElementById('downloadSvgBtn').disabled = false;
+            document.getElementById('downloadPngBtn').disabled = false;
+            document.getElementById('downloadLegendBtn').disabled = false;
+
+            Utils.showToast('Paint-by-numbers generated successfully!', 'success');
+
+        } catch (error) {
+            console.error('Generation error:', error);
+            Utils.showToast('Error generating paint-by-numbers', 'error');
+        } finally {
+            loadingOverlay.hidden = true;
+        }
+    },
+
+    /**
+     * Display result
+     */
+    displayResult(svg, legend) {
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Convert SVG to image
+        const img = new Image();
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(img.src); // Clean up
+        };
+        img.onerror = (error) => {
+            console.error('SVG rendering error:', error);
+            Utils.showToast('Error rendering SVG preview', 'error');
+        };
+
+        const blob = new Blob([svg], { type: 'image/svg+xml' });
+        img.src = URL.createObjectURL(blob);
+
+        // Store for downloads
+        this.state.currentResult.svg = svg;
+        this.state.currentResult.legend = legend;
+
+        // Show canvas placeholder
+        document.getElementById('canvasPlaceholder').hidden = true;
+
+        // Display legend
+        const legendContainer = document.getElementById('legendContainer');
+        legendContainer.innerHTML = '';
+        const legendImg = new Image();
+        legendImg.onload = () => {
+            legendContainer.appendChild(legendImg);
+            URL.revokeObjectURL(legendImg.src); // Clean up
+        };
+        legendImg.onerror = (error) => {
+            console.error('Legend rendering error:', error);
+        };
+        const legendBlob = new Blob([legend], { type: 'image/svg+xml' });
+        legendImg.src = URL.createObjectURL(legendBlob);
+
+        // Switch to result tab
+        this.switchTab('result');
+    },
+
+    /**
+     * Switch tab
+     */
+    switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tab);
+        });
+
+        document.getElementById('previewCanvas').hidden = tab !== 'result';
+        document.getElementById('originalCanvas').hidden = tab !== 'original';
+        document.getElementById('legendContainer').hidden = tab !== 'legend';
+
+        if (tab === 'original' && this.state.currentImage) {
+            const canvas = document.getElementById('originalCanvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = this.state.currentImage.width;
+            canvas.height = this.state.currentImage.height;
+            ctx.drawImage(this.state.currentImage, 0, 0);
+        }
+    },
+
+    /**
+     * Download SVG
+     */
+    downloadSVG() {
+        if (!this.state.currentResult || !this.state.currentResult.svg) return;
+        Utils.downloadSvg(this.state.currentResult.svg, 'paint-by-numbers.svg');
+    },
+
+    /**
+     * Download PNG
+     */
+    downloadPNG() {
+        if (!this.state.currentResult) return;
+        const canvas = document.getElementById('previewCanvas');
+        Utils.downloadCanvas(canvas, 'paint-by-numbers.png');
+    },
+
+    /**
+     * Download legend
+     */
+    downloadLegend() {
+        if (!this.state.currentResult || !this.state.currentResult.legend) return;
+        Utils.downloadSvg(this.state.currentResult.legend, 'color-legend.svg');
+    },
+
+    /**
+     * Reset
+     */
+    reset() {
+        this.removeImage();
+        this.applyPreset('adults');
+        this.switchTab('result');
+    },
+
+    /**
+     * Clear canvas
+     */
+    clearCanvas() {
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        document.getElementById('canvasPlaceholder').hidden = false;
+
+        document.getElementById('downloadSvgBtn').disabled = true;
+        document.getElementById('downloadPngBtn').disabled = true;
+        document.getElementById('downloadLegendBtn').disabled = true;
+    },
+
+    /**
+     * Update batch list UI
+     */
+    updateBatchList() {
+        const list = document.getElementById('batchList');
+        const count = document.getElementById('batchCount');
+        const processBtn = document.getElementById('processBatchBtn');
+
+        list.innerHTML = '';
+        const items = this.state.batchProcessor.queue;
+
+        items.forEach((item, index) => {
+            const div = document.createElement('div');
+            div.className = 'batch-item';
+            div.innerHTML = `
+                <div class="batch-item-info">
+                    <div class="batch-item-name">${item.file.name}</div>
+                    <div class="batch-item-size">${Utils.formatFileSize(item.file.size)}</div>
+                </div>
+                <span class="batch-item-status ${item.status}">${item.status}</span>
+                <button class="batch-item-remove" onclick="App.removeBatchItem(${index})">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            `;
+            list.appendChild(div);
+        });
+
+        count.textContent = items.length;
+        processBtn.disabled = items.length === 0;
+    },
+
+    /**
+     * Remove batch item
+     */
+    removeBatchItem(index) {
+        this.state.batchProcessor.removeItem(index);
+        this.updateBatchList();
+    },
+
+    /**
+     * Clear batch
+     */
+    clearBatch() {
+        this.state.batchProcessor.clear();
+        this.updateBatchList();
+    },
+
+    /**
+     * Process batch
+     */
+    async processBatch() {
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const loadingSubtext = document.getElementById('loadingSubtext');
+
+        try {
+            loadingOverlay.hidden = false;
+
+            await this.state.batchProcessor.processBatch(
+                this.state.settings,
+                (item, index) => {
+                    this.updateBatchList();
+                    loadingText.textContent = `Processing ${index + 1}/${this.state.batchProcessor.queue.length}`;
+                },
+                (progress) => {
+                    loadingSubtext.textContent = progress.message;
+                }
+            );
+
+            Utils.showToast('Batch processing complete!', 'success');
+
+            // Offer ZIP download
+            await this.state.batchProcessor.downloadAsZip();
+
+        } catch (error) {
+            console.error('Batch processing error:', error);
+            Utils.showToast('Error during batch processing', 'error');
+        } finally {
+            loadingOverlay.hidden = true;
+        }
+    },
+
+    /**
+     * Update UI state
+     */
+    updateUI() {
+        // Initial state
+    }
+};
+
+// Initialize app when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => App.init());
+} else {
+    App.init();
+}
