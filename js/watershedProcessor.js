@@ -243,28 +243,39 @@ class WatershedProcessor {
         cv.subtract(sureBg, sureFg, unknown);
 
         // Label markers (connected components)
-        const markers = new cv.Mat();
-        const numMarkers = cv.connectedComponents(sureFg, markers);
+        const markersTemp = new cv.Mat();
+        const numMarkers = cv.connectedComponents(sureFg, markersTemp);
         console.log(`Created ${numMarkers} markers for complexity: ${complexity}`);
 
-        // Add 1 to all labels so background is not 0
-        for (let y = 0; y < markers.rows; y++) {
-            for (let x = 0; x < markers.cols; x++) {
-                const val = markers.intAt(y, x);
-                markers.intPtr(y, x)[0] = val + 1;
-            }
+        // If too few markers, lower threshold and try again
+        if (numMarkers < 10) {
+            console.warn('Too few markers, retrying with lower threshold...');
+            markersTemp.delete();
+            const lowerThreshold = threshold * 0.5;
+            cv.threshold(dist, sureFg, lowerThreshold, 255, cv.THRESH_BINARY);
+            sureFg.convertTo(sureFg, cv.CV_8U);
+            const retriedMarkers = cv.connectedComponents(sureFg, markersTemp);
+            console.log(`Retried: ${retriedMarkers} markers`);
         }
 
-        // Mark unknown region as 0
-        for (let y = 0; y < unknown.rows; y++) {
-            for (let x = 0; x < unknown.cols; x++) {
-                if (unknown.ucharAt(y, x) > 0) {
-                    markers.intPtr(y, x)[0] = 0;
+        // Create final markers with proper type
+        const markers = new cv.Mat(markersTemp.rows, markersTemp.cols, cv.CV_32S);
+
+        // Add 1 to all labels and mark unknown regions
+        for (let y = 0; y < markers.rows; y++) {
+            for (let x = 0; x < markers.cols; x++) {
+                const label = markersTemp.intAt(y, x);
+                const isUnknown = unknown.ucharAt(y, x) > 0;
+
+                if (isUnknown) {
+                    markers.intPtr(y, x)[0] = 0; // Unknown region
+                } else {
+                    markers.intPtr(y, x)[0] = label + 1; // Shift labels by 1
                 }
             }
         }
 
-        console.log('Markers prepared for watershed');
+        console.log('Markers prepared for watershed (CV_32S)');
 
         // Cleanup
         gray.delete();
@@ -274,6 +285,7 @@ class WatershedProcessor {
         dist.delete();
         sureFg.delete();
         unknown.delete();
+        markersTemp.delete();
 
         return markers;
     }
