@@ -97,8 +97,7 @@ class WatershedProcessor {
                 console.error('Region extraction failed:', e);
                 quantized.delete();
                 labels.delete();
-                markers.delete();
-                watershedMap.delete();
+                watershedMap.delete(); // markers and watershedMap are same reference
                 throw new Error('Region extraction failed: ' + e);
             }
 
@@ -107,7 +106,8 @@ class WatershedProcessor {
             // Cleanup OpenCV matrices
             quantized.delete();
             labels.delete();
-            markers.delete();
+            // Note: markers and watershedMap are the same Mat reference
+            // Only delete watershedMap (the modified version)
             watershedMap.delete();
 
             return {
