@@ -2,6 +2,8 @@
    App - Main Orchestrator
    ============================================ */
 
+console.log('📦 app.js loaded');
+
 const App = {
     state: {
         currentImage: null,
@@ -33,9 +35,15 @@ const App = {
      * Initialize application
      */
     init() {
+        console.log('🎨 Watershed PBN Generator - Initializing...');
+        console.log('📍 Current mode:', this.state.mode);
+        console.log('⚙️  Settings:', this.state.settings);
+
         this.bindEvents();
         this.updateUI();
         this.waitForOpenCV();
+
+        console.log('✅ App initialized, waiting for OpenCV...');
     },
 
     /**

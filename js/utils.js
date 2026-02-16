@@ -2,6 +2,8 @@
    Utilities - Helper Functions
    ============================================ */
 
+console.log('📦 utils.js loaded');
+
 const Utils = {
     /**
      * Load image from file
@@ -269,13 +271,57 @@ const Utils = {
 
 // OpenCV.js ready callback
 window.onOpenCvReady = function() {
-    console.log('OpenCV.js is ready');
+    console.log('✅ OpenCV.js is ready!');
+    console.log('OpenCV version:', cv.getBuildInformation ? 'Available' : 'N/A');
+
     const badge = document.getElementById('opencvStatus');
     if (badge) {
-        badge.textContent = 'OpenCV Ready';
+        badge.textContent = 'OpenCV Ready ✓';
         badge.classList.add('success');
     }
 
     // Dispatch custom event
     window.dispatchEvent(new Event('opencv-ready'));
 };
+
+// Check OpenCV loading status periodically
+let opencvCheckInterval;
+let opencvCheckAttempts = 0;
+const maxOpenCvCheckAttempts = 30; // 30 seconds timeout
+
+function checkOpenCVStatus() {
+    if (typeof cv !== 'undefined' && cv.Mat) {
+        console.log('✅ OpenCV detected and ready!');
+        clearInterval(opencvCheckInterval);
+        if (typeof window.onOpenCvReady === 'function') {
+            window.onOpenCvReady();
+        }
+    } else {
+        opencvCheckAttempts++;
+        if (opencvCheckAttempts >= maxOpenCvCheckAttempts) {
+            clearInterval(opencvCheckInterval);
+            console.error('❌ OpenCV.js failed to load after 30 seconds');
+            const badge = document.getElementById('opencvStatus');
+            if (badge) {
+                badge.textContent = 'OpenCV Failed to Load';
+                badge.classList.add('error');
+                badge.style.backgroundColor = '#ef4444';
+                badge.style.color = 'white';
+            }
+            Utils.showToast('OpenCV.js failed to load. Please refresh the page.', 'error', 10000);
+        } else if (opencvCheckAttempts % 5 === 0) {
+            console.log(`⏳ Waiting for OpenCV.js... (${opencvCheckAttempts}s)`);
+        }
+    }
+}
+
+// Start checking when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('🚀 Starting OpenCV.js load check...');
+        opencvCheckInterval = setInterval(checkOpenCVStatus, 1000);
+    });
+} else {
+    console.log('🚀 Starting OpenCV.js load check...');
+    opencvCheckInterval = setInterval(checkOpenCVStatus, 1000);
+}

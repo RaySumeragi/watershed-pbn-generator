@@ -316,7 +316,25 @@
     <script src="js/utils.js"></script>
 
     <!-- 2. OpenCV.js - calls onOpenCvReady when ready -->
-    <script src="https://docs.opencv.org/4.9.0/opencv.js"></script>
+    <!-- Using more reliable CDN with async loading -->
+    <script>
+        // Define OpenCV ready callback BEFORE loading OpenCV
+        var Module = {
+            onRuntimeInitialized: function() {
+                console.log('OpenCV.js runtime initialized');
+                if (typeof window.onOpenCvReady === 'function') {
+                    window.onOpenCvReady();
+                }
+            }
+        };
+    </script>
+    <script async src="https://docs.opencv.org/4.9.0/opencv.js"
+            onerror="console.error('Failed to load OpenCV.js from opencv.org, trying fallback...');
+                     var script = document.createElement('script');
+                     script.src = 'https://cdn.jsdelivr.net/npm/opencv.js@4.9.0/opencv.js';
+                     script.async = true;
+                     document.body.appendChild(script);">
+    </script>
 
     <!-- 3. Other modules - can load immediately but wait for OpenCV at runtime -->
     <script src="js/colorQuantizer.js"></script>
