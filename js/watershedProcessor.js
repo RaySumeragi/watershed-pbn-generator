@@ -189,105 +189,52 @@ class WatershedProcessor {
 
     /**
      * Create watershed markers based on complexity
-     * @param {cv.Mat} quantized - Quantized color image
+     * Simple approach: Use morphological operations on quantized image
+     * @param {cv.Mat} quantized - Quantized color image (RGB)
      * @param {string} complexity - 'low' | 'medium' | 'high' | 'extreme'
-     * @returns {cv.Mat} Marker image
+     * @returns {cv.Mat} Marker image (CV_32S)
      */
     createMarkers(quantized, complexity) {
-        console.log('Creating markers, complexity:', complexity);
+        console.log('Creating markers (simple approach), complexity:', complexity);
         console.log('Quantized image:', quantized.cols, 'x', quantized.rows, 'channels:', quantized.channels());
 
         // Convert to grayscale
         const gray = new cv.Mat();
-        try {
-            cv.cvtColor(quantized, gray, cv.COLOR_RGB2GRAY);
-            console.log('Converted to grayscale');
-        } catch (e) {
-            throw new Error('Grayscale conversion failed: ' + e);
-        }
+        cv.cvtColor(quantized, gray, cv.COLOR_RGB2GRAY);
 
-        // Apply morphological opening to remove noise
-        const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
-        const opening = new cv.Mat();
-        cv.morphologyEx(gray, opening, cv.MORPH_OPEN, kernel);
+        // Get kernel size based on complexity
+        const kernelSizes = {
+            low: 11,     // Large kernel = fewer, larger regions
+            medium: 7,   // Medium kernel
+            high: 5,     // Small kernel = more, smaller regions
+            extreme: 3   // Very small kernel
+        };
+        const kernelSize = kernelSizes[complexity] || 5;
 
-        // Sure background area (dilate)
-        const sureBg = new cv.Mat();
-        cv.dilate(opening, sureBg, kernel, new cv.Point(-1, -1), 3);
+        // Apply morphological gradient to find boundaries
+        const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kernelSize, kernelSize));
+        const gradient = new cv.Mat();
+        cv.morphologyEx(gray, gradient, cv.MORPH_GRADIENT, kernel);
 
-        // Distance transform to find sure foreground
-        const dist = new cv.Mat();
-        cv.distanceTransform(opening, dist, cv.DIST_L2, 5);
+        // Threshold to get binary markers
+        const binary = new cv.Mat();
+        cv.threshold(gradient, binary, 10, 255, cv.THRESH_BINARY_INV);
 
-        // Threshold to get sure foreground
-        const thresholdValue = this.getComplexityThreshold(complexity);
-        const sureFg = new cv.Mat();
-
-        // Normalize and threshold
-        let maxVal = 0;
-        for (let y = 0; y < dist.rows; y++) {
-            for (let x = 0; x < dist.cols; x++) {
-                const val = dist.floatAt(y, x);
-                if (val > maxVal) maxVal = val;
-            }
-        }
-        console.log('Distance transform max:', maxVal);
-
-        const threshold = maxVal * thresholdValue;
-        console.log('Threshold value:', threshold);
-        cv.threshold(dist, sureFg, threshold, 255, cv.THRESH_BINARY);
-        sureFg.convertTo(sureFg, cv.CV_8U);
-
-        // Unknown region (background - foreground)
-        const unknown = new cv.Mat();
-        cv.subtract(sureBg, sureFg, unknown);
-
-        // Label markers (connected components)
+        // Label connected components
         const markersTemp = new cv.Mat();
-        const numMarkers = cv.connectedComponents(sureFg, markersTemp);
-        console.log(`Created ${numMarkers} markers for complexity: ${complexity}`);
+        const numMarkers = cv.connectedComponents(binary, markersTemp, 8, cv.CV_32S);
+        console.log(`Created ${numMarkers} initial markers`);
 
-        // If too few markers, lower threshold and try again
-        if (numMarkers < 10) {
-            console.warn('Too few markers, retrying with lower threshold...');
-            markersTemp.delete();
-            const lowerThreshold = threshold * 0.5;
-            cv.threshold(dist, sureFg, lowerThreshold, 255, cv.THRESH_BINARY);
-            sureFg.convertTo(sureFg, cv.CV_8U);
-            const retriedMarkers = cv.connectedComponents(sureFg, markersTemp);
-            console.log(`Retried: ${retriedMarkers} markers`);
-        }
-
-        // Create final markers with proper type
-        const markers = new cv.Mat(markersTemp.rows, markersTemp.cols, cv.CV_32S);
-
-        // Add 1 to all labels and mark unknown regions
-        for (let y = 0; y < markers.rows; y++) {
-            for (let x = 0; x < markers.cols; x++) {
-                const label = markersTemp.intAt(y, x);
-                const isUnknown = unknown.ucharAt(y, x) > 0;
-
-                if (isUnknown) {
-                    markers.intPtr(y, x)[0] = 0; // Unknown region
-                } else {
-                    markers.intPtr(y, x)[0] = label + 1; // Shift labels by 1
-                }
-            }
-        }
-
-        console.log('Markers prepared for watershed (CV_32S)');
+        // markersTemp is already CV_32S, so we can use it directly
+        console.log('Markers ready for watershed');
 
         // Cleanup
         gray.delete();
         kernel.delete();
-        opening.delete();
-        sureBg.delete();
-        dist.delete();
-        sureFg.delete();
-        unknown.delete();
-        markersTemp.delete();
+        gradient.delete();
+        binary.delete();
 
-        return markers;
+        return markersTemp;
     }
 
     /**
