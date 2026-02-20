@@ -26,7 +26,8 @@ class WatershedProcessor {
             colorCount = 14,
             complexity = 'high',
             minRegionSize = 100,
-            maxSize = 1024
+            maxSize = 1024,
+            geometricStyle = false
         } = options;
 
         try {
@@ -91,7 +92,7 @@ class WatershedProcessor {
             // Step 5: Extract and process regions
             let regions;
             try {
-                regions = this.extractRegions(watershedMap, quantized, palette, minRegionSize);
+                regions = this.extractRegions(watershedMap, quantized, palette, minRegionSize, geometricStyle);
                 console.log('Regions extracted:', regions.length);
             } catch (e) {
                 console.error('Region extraction failed:', e);
@@ -358,9 +359,10 @@ class WatershedProcessor {
      * @param {cv.Mat} quantized - Quantized image
      * @param {Array} palette - Color palette
      * @param {number} minRegionSize - Minimum region size in pixels
+     * @param {boolean} geometricStyle - Use aggressive polygon simplification
      * @returns {Array} Array of regions
      */
-    extractRegions(watershedMap, quantized, palette, minRegionSize) {
+    extractRegions(watershedMap, quantized, palette, minRegionSize, geometricStyle = false) {
         const regions = [];
         const width = watershedMap.cols;
         const height = watershedMap.rows;
@@ -414,7 +416,7 @@ class WatershedProcessor {
             if (contours.size() > 0) {
                 // Simplify contour with Douglas-Peucker approximation
                 const rawContour = contours.get(0);
-                const epsilon = 1.5;
+                const epsilon = geometricStyle ? 4.0 : 1.5;
                 const contour = new cv.Mat();
                 cv.approxPolyDP(rawContour, contour, epsilon, true);
                 rawContour.delete();

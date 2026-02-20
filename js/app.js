@@ -20,6 +20,7 @@ const App = {
             numberOpacity: 1.0,
             showColors: false,
             backgroundColor: '#ffffff',
+            geometricStyle: false,
             maxSize: 1024
         },
         batchProcessor: new BatchProcessor()
@@ -149,6 +150,10 @@ const App = {
         document.getElementById('numberOpacitySlider').addEventListener('input', (e) => {
             this.state.settings.numberOpacity = parseFloat(e.target.value);
             document.getElementById('numberOpacityValue').textContent = Math.round(e.target.value * 100) + '%';
+        });
+
+        document.getElementById('geometricStyleCheck').addEventListener('change', (e) => {
+            this.state.settings.geometricStyle = e.target.checked;
         });
 
         // Actions
@@ -283,13 +288,15 @@ const App = {
         document.getElementById('numberSizeSlider').value = preset.numberSize;
         document.getElementById('numberSizeValue').textContent = preset.numberSize + ' pt';
 
-        // Reset opacity to 100% on preset change
+        // Reset opacity and geometric style on preset change
         this.state.settings.lineOpacity = 1.0;
         this.state.settings.numberOpacity = 1.0;
+        this.state.settings.geometricStyle = false;
         document.getElementById('lineOpacitySlider').value = 1;
         document.getElementById('lineOpacityValue').textContent = '100%';
         document.getElementById('numberOpacitySlider').value = 1;
         document.getElementById('numberOpacityValue').textContent = '100%';
+        document.getElementById('geometricStyleCheck').checked = false;
 
         document.querySelectorAll('.preset-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.preset === presetName);
@@ -345,6 +352,7 @@ const App = {
             const svgGen = new SVGGenerator();
             const svg = svgGen.generateSVG(result.regions, result.palette, {
                 ...this.state.settings,
+                smoothPaths: !this.state.settings.geometricStyle,
                 width: result.width,
                 height: result.height
             });
@@ -484,6 +492,7 @@ const App = {
         const svgGen = new SVGGenerator();
         const cleanSvg = svgGen.generateSVG(result.regions, result.palette, {
             ...this.state.settings,
+            smoothPaths: !this.state.settings.geometricStyle,
             showNumbers: false,
             width: result.width,
             height: result.height
@@ -722,6 +731,7 @@ const App = {
                 // Generate SVG + Legend
                 const svg = svgGen.generateSVG(result.regions, result.palette, {
                     ...this.state.settings,
+                    smoothPaths: !this.state.settings.geometricStyle,
                     width: result.width,
                     height: result.height
                 });

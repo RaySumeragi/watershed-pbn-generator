@@ -20,7 +20,8 @@ class SVGGenerator {
             lineOpacity = 1.0,
             numberOpacity = 1.0,
             showColors = false,
-            backgroundColor = '#ffffff'
+            backgroundColor = '#ffffff',
+            smoothPaths = true
         } = options;
 
         const svgNS = 'http://www.w3.org/2000/svg';
@@ -49,7 +50,7 @@ class SVGGenerator {
                 strokeOpacity: lineOpacity,
                 strokeLinejoin: 'round', // CRITICAL: Prevents double lines at corners
                 strokeLinecap: 'round'
-            });
+            }, smoothPaths);
             regionsGroup.appendChild(path);
         });
 
@@ -87,11 +88,13 @@ class SVGGenerator {
      * @param {Object} style
      * @returns {SVGPathElement}
      */
-    createRegionPath(region, style) {
+    createRegionPath(region, style, smoothPaths = true) {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
 
         // Convert contour to SVG path string
-        const pathData = this.contourToPathData(region.contour);
+        const pathData = smoothPaths
+            ? this.contourToPathData(region.contour)
+            : this.contourToLinearPath(region.contour);
         path.setAttribute('d', pathData);
 
         // Apply styles
@@ -148,6 +151,21 @@ class SVGGenerator {
 
         pathData += ' Z';
         return pathData;
+    }
+
+    /**
+     * Convert contour array to SVG path data using straight line segments.
+     * Produces a geometric polygon look without curve smoothing.
+     * @param {Array} contour - Array of {x, y} points
+     * @returns {string} SVG path data string
+     */
+    contourToLinearPath(contour) {
+        if (contour.length === 0) return '';
+        let d = `M ${contour[0].x} ${contour[0].y}`;
+        for (let i = 1; i < contour.length; i++) {
+            d += ` L ${contour[i].x} ${contour[i].y}`;
+        }
+        return d + ' Z';
     }
 
     /**
