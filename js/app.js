@@ -156,6 +156,10 @@ const App = {
         // Batch mode
         document.getElementById('clearBatchBtn').addEventListener('click', () => this.clearBatch());
         document.getElementById('processBatchBtn').addEventListener('click', () => this.processBatch());
+        document.getElementById('batchFileInput').addEventListener('change', (e) => {
+            this.handleFileSelect(e.target.files);
+            e.target.value = ''; // Reset so same files can be re-added
+        });
     },
 
     /**
@@ -229,13 +233,21 @@ const App = {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
 
-        document.getElementById('imagePreviewContainer').hidden = mode === 'batch';
-        document.getElementById('batchListContainer').hidden = mode === 'single';
-        document.getElementById('uploadPlaceholder').hidden = false;
-
         // Update file input for batch mode
         const fileInput = document.getElementById('fileInput');
         fileInput.multiple = mode === 'batch';
+
+        if (mode === 'batch') {
+            document.getElementById('imagePreviewContainer').hidden = true;
+            const hasItems = this.state.batchProcessor.queue.length > 0;
+            document.getElementById('batchListContainer').hidden = !hasItems;
+            document.getElementById('uploadPlaceholder').hidden = hasItems;
+        } else {
+            document.getElementById('batchListContainer').hidden = true;
+            const hasImage = this.state.currentImage !== null;
+            document.getElementById('imagePreviewContainer').hidden = !hasImage;
+            document.getElementById('uploadPlaceholder').hidden = hasImage;
+        }
     },
 
     /**
@@ -554,6 +566,13 @@ const App = {
 
         count.textContent = items.length;
         processBtn.disabled = items.length === 0;
+
+        // Toggle placeholder vs batch list visibility
+        if (this.state.mode === 'batch') {
+            const hasItems = items.length > 0;
+            document.getElementById('batchListContainer').hidden = !hasItems;
+            document.getElementById('uploadPlaceholder').hidden = hasItems;
+        }
     },
 
     /**
@@ -573,37 +592,112 @@ const App = {
     },
 
     /**
-     * Process batch
+     * Process batch - processes each image one by one,
+     * downloads combined PNG+Legend for each, then continues.
      */
     async processBatch() {
         const loadingOverlay = document.getElementById('loadingOverlay');
         const loadingText = document.getElementById('loadingText');
         const loadingSubtext = document.getElementById('loadingSubtext');
+        const progressBar = document.getElementById('progressBar');
+        const queue = this.state.batchProcessor.queue;
 
-        try {
-            loadingOverlay.hidden = false;
+        if (queue.length === 0) return;
 
-            await this.state.batchProcessor.processBatch(
-                this.state.settings,
-                (item, index) => {
+        loadingOverlay.hidden = false;
+        let completed = 0;
+        let errors = 0;
+
+        const processor = new WatershedProcessor();
+        const svgGen = new SVGGenerator();
+
+        for (let i = 0; i < queue.length; i++) {
+            const item = queue[i];
+            const baseName = item.file.name.replace(/\.[^.]+$/, '');
+
+            try {
+                item.status = 'processing';
+                this.updateBatchList();
+                loadingText.textContent = `Processing ${i + 1} / ${queue.length}: ${item.file.name}`;
+                loadingSubtext.textContent = 'Loading image...';
+                progressBar.style.width = '0%';
+
+                // Load and process image
+                const image = await Utils.loadImageFromFile(item.file);
+                const imageData = Utils.getImageData(image, this.state.settings.maxSize);
+
+                const result = await processor.process(
+                    imageData,
+                    this.state.settings,
+                    (progress) => {
+                        progressBar.style.width = progress.percent + '%';
+                        loadingSubtext.textContent = progress.message;
+                    }
+                );
+
+                if (result.regions.length === 0) {
+                    item.status = 'error';
+                    item.error = 'No regions detected';
+                    errors++;
                     this.updateBatchList();
-                    loadingText.textContent = `Processing ${index + 1}/${this.state.batchProcessor.queue.length}`;
-                },
-                (progress) => {
-                    loadingSubtext.textContent = progress.message;
+                    continue;
                 }
-            );
 
-            Utils.showToast('Batch processing complete!', 'success');
+                // Generate SVG + Legend
+                const svg = svgGen.generateSVG(result.regions, result.palette, {
+                    ...this.state.settings,
+                    width: result.width,
+                    height: result.height
+                });
+                const legend = svgGen.generateLegend(result.palette);
 
-            // Offer ZIP download
-            await this.state.batchProcessor.downloadAsZip();
+                // Render combined PNG (PBN + Legend) like downloadAll
+                loadingSubtext.textContent = 'Rendering PNG...';
+                const pbnImg = await this.svgToImage(svg);
+                const legendImg = await this.svgToImage(legend);
 
-        } catch (error) {
-            console.error('Batch processing error:', error);
-            Utils.showToast('Error during batch processing', 'error');
-        } finally {
-            loadingOverlay.hidden = true;
+                const targetWidth = Math.round(result.width * 1.1);
+                const pbnHeight = Math.round(pbnImg.height * (targetWidth / pbnImg.width));
+                const legendScale = targetWidth / legendImg.width;
+                const legendHeight = Math.round(legendImg.height * legendScale);
+                const spacing = 24;
+
+                const combinedCanvas = document.createElement('canvas');
+                combinedCanvas.width = targetWidth;
+                combinedCanvas.height = pbnHeight + spacing + legendHeight;
+                const ctx = combinedCanvas.getContext('2d');
+
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height);
+                ctx.drawImage(pbnImg, 0, 0, targetWidth, pbnHeight);
+                ctx.drawImage(legendImg, 0, pbnHeight + spacing, targetWidth, legendHeight);
+
+                // Download this image
+                loadingSubtext.textContent = 'Downloading...';
+                Utils.downloadCanvas(combinedCanvas, `${baseName}_pbn.png`);
+
+                // Small delay between downloads so browser doesn't block them
+                await new Promise(r => setTimeout(r, 800));
+
+                item.status = 'completed';
+                completed++;
+                this.updateBatchList();
+
+            } catch (error) {
+                console.error(`Error processing ${item.file.name}:`, error);
+                item.status = 'error';
+                item.error = error.message;
+                errors++;
+                this.updateBatchList();
+            }
+        }
+
+        loadingOverlay.hidden = true;
+
+        if (errors === 0) {
+            Utils.showToast(`Batch complete! ${completed} images downloaded.`, 'success', 5000);
+        } else {
+            Utils.showToast(`Done: ${completed} downloaded, ${errors} failed.`, 'warning', 5000);
         }
     },
 

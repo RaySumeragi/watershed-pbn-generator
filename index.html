@@ -85,7 +85,13 @@
                 <div class="batch-list-container" id="batchListContainer" hidden>
                     <div class="batch-header">
                         <h3>Batch Queue (<span id="batchCount">0</span> images)</h3>
-                        <button class="btn btn-small btn-danger" id="clearBatchBtn">Clear All</button>
+                        <div class="batch-header-actions">
+                            <label class="btn btn-small btn-secondary batch-add-btn">
+                                + Add Files
+                                <input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden id="batchFileInput">
+                            </label>
+                            <button class="btn btn-small btn-danger" id="clearBatchBtn">Clear All</button>
+                        </div>
                     </div>
                     <div class="batch-list" id="batchList"></div>
                     <button class="btn btn-primary" id="processBatchBtn" disabled>
@@ -296,10 +302,6 @@
             <p class="footer-tech">Powered by OpenCV.js Watershed Algorithm</p>
         </div>
     </footer>
-
-    <!-- Optional: JSZip for batch downloads -->
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
     <!-- Scripts - Load order is critical! -->
     <!-- 1. Utils first - defines onOpenCvReady callback -->

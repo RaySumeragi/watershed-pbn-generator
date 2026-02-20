@@ -400,13 +400,24 @@ class WatershedProcessor {
                 return;
             }
 
+            // Morphological smoothing: close then open to remove pixel jaggedness
+            const morphKernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+            cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, morphKernel);
+            cv.morphologyEx(mask, mask, cv.MORPH_OPEN, morphKernel);
+            morphKernel.delete();
+
             // Find contour of this region
             const contours = new cv.MatVector();
             const hierarchy = new cv.Mat();
             cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
             if (contours.size() > 0) {
-                const contour = contours.get(0);
+                // Simplify contour with Douglas-Peucker approximation
+                const rawContour = contours.get(0);
+                const epsilon = 1.5;
+                const contour = new cv.Mat();
+                cv.approxPolyDP(rawContour, contour, epsilon, true);
+                rawContour.delete();
 
                 // Get color ID from marker-to-color mapping (direct, no guessing)
                 let colorId = markerToColor[label] || 1;

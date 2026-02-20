@@ -100,21 +100,49 @@ class SVGGenerator {
     }
 
     /**
-     * Convert contour array to SVG path data
+     * Convert contour array to SVG path data using Catmull-Rom → cubic Bezier curves.
+     * Produces smooth curves through the control points instead of jagged line segments.
      * @param {Array} contour - Array of {x, y} points
      * @returns {string} SVG path data string
      */
     contourToPathData(contour) {
         if (contour.length === 0) return '';
-
-        let pathData = `M ${contour[0].x} ${contour[0].y}`;
-
-        for (let i = 1; i < contour.length; i++) {
-            pathData += ` L ${contour[i].x} ${contour[i].y}`;
+        if (contour.length < 3) {
+            // Fall back to lines for degenerate contours
+            let d = `M ${contour[0].x} ${contour[0].y}`;
+            for (let i = 1; i < contour.length; i++) {
+                d += ` L ${contour[i].x} ${contour[i].y}`;
+            }
+            return d + ' Z';
         }
 
-        pathData += ' Z'; // Close path
+        const n = contour.length;
+        // Catmull-Rom tension (0 = straight, 0.5 = standard smooth)
+        const alpha = 0.5;
 
+        // Helper: get point with wrap-around for closed contour
+        const pt = i => contour[(i + n) % n];
+
+        // Convert one Catmull-Rom segment (p0,p1,p2,p3) to cubic Bezier control points
+        const catmullToBezier = (p0, p1, p2, p3) => {
+            const cp1x = p1.x + (p2.x - p0.x) * alpha / 3;
+            const cp1y = p1.y + (p2.y - p0.y) * alpha / 3;
+            const cp2x = p2.x - (p3.x - p1.x) * alpha / 3;
+            const cp2y = p2.y - (p3.y - p1.y) * alpha / 3;
+            return { cp1x, cp1y, cp2x, cp2y };
+        };
+
+        let pathData = `M ${pt(0).x} ${pt(0).y}`;
+
+        for (let i = 0; i < n; i++) {
+            const { cp1x, cp1y, cp2x, cp2y } = catmullToBezier(
+                pt(i - 1), pt(i), pt(i + 1), pt(i + 2)
+            );
+            const next = pt(i + 1);
+            pathData += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${next.x} ${next.y}`;
+        }
+
+        pathData += ' Z';
         return pathData;
     }
 
