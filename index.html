@@ -236,6 +236,24 @@
                             <input type="range" id="numberSizeSlider" class="control-slider" min="8" max="20" value="12">
                         </div>
 
+                        <!-- Number Opacity -->
+                        <div class="control-group">
+                            <label class="control-label">
+                                Number Opacity
+                                <span class="control-value" id="numberOpacityValue">100%</span>
+                            </label>
+                            <input type="range" id="numberOpacitySlider" class="control-slider" min="0.1" max="1" value="1" step="0.1">
+                        </div>
+
+                        <!-- Line Opacity -->
+                        <div class="control-group">
+                            <label class="control-label">
+                                Line Opacity
+                                <span class="control-value" id="lineOpacityValue">100%</span>
+                            </label>
+                            <input type="range" id="lineOpacitySlider" class="control-slider" min="0.1" max="1" value="1" step="0.1">
+                        </div>
+
                         <!-- Show Preview Colors -->
                         <div class="control-group checkbox-group">
                             <label class="checkbox-label">
@@ -269,6 +287,7 @@
                         <button class="btn btn-success" id="downloadSvgBtn" disabled>SVG</button>
                         <button class="btn btn-success" id="downloadPngBtn" disabled>PNG</button>
                         <button class="btn btn-success" id="downloadLegendBtn" disabled>Legend</button>
+                        <button class="btn btn-success" id="downloadCleanBtn" disabled>Clean</button>
                     </div>
 
                     <button class="btn btn-primary" id="downloadAllBtn" disabled>

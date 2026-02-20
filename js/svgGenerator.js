@@ -17,6 +17,8 @@ class SVGGenerator {
             showNumbers = true,
             numberSize = 12,
             lineWidth = 1.5,
+            lineOpacity = 1.0,
+            numberOpacity = 1.0,
             showColors = false,
             backgroundColor = '#ffffff'
         } = options;
@@ -44,6 +46,7 @@ class SVGGenerator {
                 fill: showColors ? region.color.hex : 'none',
                 stroke: '#000000',
                 strokeWidth: lineWidth,
+                strokeOpacity: lineOpacity,
                 strokeLinejoin: 'round', // CRITICAL: Prevents double lines at corners
                 strokeLinecap: 'round'
             });
@@ -66,6 +69,7 @@ class SVGGenerator {
                 text.setAttribute('text-anchor', 'middle');
                 text.setAttribute('dominant-baseline', 'middle');
                 text.setAttribute('fill', '#666666');
+                if (numberOpacity < 1.0) text.setAttribute('fill-opacity', numberOpacity);
                 text.setAttribute('font-family', 'Arial, sans-serif');
                 text.textContent = region.colorId;
                 numbersGroup.appendChild(text);

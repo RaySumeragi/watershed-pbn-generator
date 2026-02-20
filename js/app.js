@@ -14,8 +14,10 @@ const App = {
             complexity: 'high',
             minRegionSize: 100,
             lineWidth: 1.5,
+            lineOpacity: 1.0,
             showNumbers: true,
             numberSize: 12,
+            numberOpacity: 1.0,
             showColors: false,
             backgroundColor: '#ffffff',
             maxSize: 1024
@@ -139,12 +141,23 @@ const App = {
             document.getElementById('bgColorValue').textContent = e.target.value;
         });
 
+        document.getElementById('lineOpacitySlider').addEventListener('input', (e) => {
+            this.state.settings.lineOpacity = parseFloat(e.target.value);
+            document.getElementById('lineOpacityValue').textContent = Math.round(e.target.value * 100) + '%';
+        });
+
+        document.getElementById('numberOpacitySlider').addEventListener('input', (e) => {
+            this.state.settings.numberOpacity = parseFloat(e.target.value);
+            document.getElementById('numberOpacityValue').textContent = Math.round(e.target.value * 100) + '%';
+        });
+
         // Actions
         document.getElementById('generateBtn').addEventListener('click', () => this.generate());
         document.getElementById('downloadSvgBtn').addEventListener('click', () => this.downloadSVG());
         document.getElementById('downloadPngBtn').addEventListener('click', () => this.downloadPNG());
         document.getElementById('downloadLegendBtn').addEventListener('click', () => this.downloadLegend());
         document.getElementById('downloadAllBtn').addEventListener('click', () => this.downloadAll());
+        document.getElementById('downloadCleanBtn').addEventListener('click', () => this.downloadClean());
         document.getElementById('resetBtn').addEventListener('click', () => this.reset());
         document.getElementById('removeImageBtn').addEventListener('click', () => this.removeImage());
 
@@ -270,6 +283,14 @@ const App = {
         document.getElementById('numberSizeSlider').value = preset.numberSize;
         document.getElementById('numberSizeValue').textContent = preset.numberSize + ' pt';
 
+        // Reset opacity to 100% on preset change
+        this.state.settings.lineOpacity = 1.0;
+        this.state.settings.numberOpacity = 1.0;
+        document.getElementById('lineOpacitySlider').value = 1;
+        document.getElementById('lineOpacityValue').textContent = '100%';
+        document.getElementById('numberOpacitySlider').value = 1;
+        document.getElementById('numberOpacityValue').textContent = '100%';
+
         document.querySelectorAll('.preset-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.preset === presetName);
         });
@@ -342,6 +363,7 @@ const App = {
             document.getElementById('downloadPngBtn').disabled = false;
             document.getElementById('downloadLegendBtn').disabled = false;
             document.getElementById('downloadAllBtn').disabled = false;
+            document.getElementById('downloadCleanBtn').disabled = false;
 
             Utils.showToast('Paint-by-numbers generated successfully!', 'success');
 
@@ -453,6 +475,32 @@ const App = {
     },
 
     /**
+     * Download Clean - outlines only, no numbers, no legend
+     */
+    async downloadClean() {
+        if (!this.state.currentResult) return;
+
+        const result = this.state.currentResult;
+        const svgGen = new SVGGenerator();
+        const cleanSvg = svgGen.generateSVG(result.regions, result.palette, {
+            ...this.state.settings,
+            showNumbers: false,
+            width: result.width,
+            height: result.height
+        });
+
+        const img = await this.svgToImage(cleanSvg);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        Utils.downloadCanvas(canvas, 'paint-by-numbers-clean.png');
+        Utils.showToast('Downloaded clean painting template!', 'success');
+    },
+
+    /**
      * Render combined PNG: PBN on top, legend (left) + original thumbnail (right) below.
      * Returns a canvas element.
      * @param {HTMLImageElement|HTMLCanvasElement} pbnSource - PBN image or canvas
@@ -559,6 +607,7 @@ const App = {
         document.getElementById('downloadSvgBtn').disabled = true;
         document.getElementById('downloadPngBtn').disabled = true;
         document.getElementById('downloadLegendBtn').disabled = true;
+        document.getElementById('downloadCleanBtn').disabled = true;
     },
 
     /**
