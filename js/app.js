@@ -453,44 +453,71 @@ const App = {
     },
 
     /**
-     * Download All - Combined PNG (110% width) with legend below
+     * Render combined PNG: PBN on top, legend (left) + original thumbnail (right) below.
+     * Returns a canvas element.
+     * @param {HTMLImageElement|HTMLCanvasElement} pbnSource - PBN image or canvas
+     * @param {HTMLImageElement} legendImg - rendered legend image
+     * @param {HTMLImageElement} originalImg - original photo for thumbnail
+     * @param {number} targetWidth - total width of the combined image
+     */
+    renderCombinedPNG(pbnSource, legendImg, originalImg, targetWidth) {
+        const pbnHeight = Math.round(pbnSource.height * (targetWidth / pbnSource.width));
+        const spacing = 24;
+        const gap = 12;
+
+        // Bottom section: legend left (~70%), original thumbnail right (~30%)
+        const legendWidth = Math.round(targetWidth * 0.7 - gap / 2);
+        const thumbWidth = Math.round(targetWidth * 0.3 - gap / 2);
+
+        // Scale legend to fit left column
+        const legendScale = legendWidth / legendImg.width;
+        const legendHeight = Math.round(legendImg.height * legendScale);
+
+        // Scale original proportionally to fit thumb column
+        const thumbScale = Math.min(thumbWidth / originalImg.width, 1);
+        const thumbH = Math.round(originalImg.height * thumbScale);
+        const thumbW = Math.round(originalImg.width * thumbScale);
+
+        // Bottom row height = max of legend and thumbnail
+        const bottomHeight = Math.max(legendHeight, thumbH);
+        const totalHeight = pbnHeight + spacing + bottomHeight;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = totalHeight;
+        const ctx = canvas.getContext('2d');
+
+        // White background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetWidth, totalHeight);
+
+        // Draw PBN on top
+        ctx.drawImage(pbnSource, 0, 0, targetWidth, pbnHeight);
+
+        // Draw legend bottom-left
+        ctx.drawImage(legendImg, 0, pbnHeight + spacing, legendWidth, legendHeight);
+
+        // Draw original thumbnail bottom-right, vertically centered
+        const thumbX = legendWidth + gap;
+        const thumbY = pbnHeight + spacing + Math.round((bottomHeight - thumbH) / 2);
+        ctx.drawImage(originalImg, thumbX, thumbY, thumbW, thumbH);
+
+        return canvas;
+    },
+
+    /**
+     * Download All - Combined PNG (110% width) with legend + original thumbnail below
      */
     async downloadAll() {
         if (!this.state.currentResult || !this.state.currentResult.svg) return;
 
         const result = this.state.currentResult;
         const pbnCanvas = document.getElementById('previewCanvas');
-
-        // Target width: 110% of original
         const targetWidth = Math.round(result.width * 1.1);
-        const pbnHeight = Math.round(pbnCanvas.height * (targetWidth / pbnCanvas.width));
 
-        // Render legend SVG to get its dimensions
         const legendImg = await this.svgToImage(result.legend);
-        const legendScale = targetWidth / legendImg.width;
-        const legendHeight = Math.round(legendImg.height * legendScale);
+        const combinedCanvas = this.renderCombinedPNG(pbnCanvas, legendImg, this.state.currentImage, targetWidth);
 
-        // Spacing between PBN and legend
-        const spacing = 24;
-
-        // Create combined canvas
-        const totalHeight = pbnHeight + spacing + legendHeight;
-        const combinedCanvas = document.createElement('canvas');
-        combinedCanvas.width = targetWidth;
-        combinedCanvas.height = totalHeight;
-        const ctx = combinedCanvas.getContext('2d');
-
-        // White background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, targetWidth, totalHeight);
-
-        // Draw PBN scaled to 110% width
-        ctx.drawImage(pbnCanvas, 0, 0, targetWidth, pbnHeight);
-
-        // Draw legend below
-        ctx.drawImage(legendImg, 0, pbnHeight + spacing, targetWidth, legendHeight);
-
-        // Download
         Utils.downloadCanvas(combinedCanvas, 'paint-by-numbers-complete.png');
         Utils.showToast('Downloaded PNG + Legend!', 'success');
     },
@@ -657,20 +684,7 @@ const App = {
                 const legendImg = await this.svgToImage(legend);
 
                 const targetWidth = Math.round(result.width * 1.1);
-                const pbnHeight = Math.round(pbnImg.height * (targetWidth / pbnImg.width));
-                const legendScale = targetWidth / legendImg.width;
-                const legendHeight = Math.round(legendImg.height * legendScale);
-                const spacing = 24;
-
-                const combinedCanvas = document.createElement('canvas');
-                combinedCanvas.width = targetWidth;
-                combinedCanvas.height = pbnHeight + spacing + legendHeight;
-                const ctx = combinedCanvas.getContext('2d');
-
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height);
-                ctx.drawImage(pbnImg, 0, 0, targetWidth, pbnHeight);
-                ctx.drawImage(legendImg, 0, pbnHeight + spacing, targetWidth, legendHeight);
+                const combinedCanvas = this.renderCombinedPNG(pbnImg, legendImg, image, targetWidth);
 
                 // Download this image
                 loadingSubtext.textContent = 'Downloading...';
