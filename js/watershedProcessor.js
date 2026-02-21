@@ -27,7 +27,8 @@ class WatershedProcessor {
             complexity = 'high',
             minRegionSize = 100,
             maxSize = 1024,
-            geometricStyle = false
+            geometricStyle = false,
+            preserveDetails = false
         } = options;
 
         try {
@@ -36,7 +37,7 @@ class WatershedProcessor {
             // Step 1: Preprocess image
             let preprocessed;
             try {
-                preprocessed = await this.preprocessImage(imageData, maxSize);
+                preprocessed = await this.preprocessImage(imageData, maxSize, preserveDetails);
                 console.log('Preprocessing done:', preprocessed.width, 'x', preprocessed.height);
             } catch (e) {
                 console.error('Preprocessing failed:', e);
@@ -63,7 +64,7 @@ class WatershedProcessor {
             // Step 3: Create watershed markers from quantized color labels
             let markers;
             try {
-                markers = this.createMarkers(quantized, labels, colorCount, complexity);
+                markers = this.createMarkers(quantized, labels, colorCount, complexity, preserveDetails);
                 console.log('Markers created');
             } catch (e) {
                 console.error('Marker creation failed:', e);
@@ -92,7 +93,7 @@ class WatershedProcessor {
             // Step 5: Extract and process regions
             let regions;
             try {
-                regions = this.extractRegions(watershedMap, quantized, palette, minRegionSize, geometricStyle);
+                regions = this.extractRegions(watershedMap, quantized, palette, minRegionSize, geometricStyle, preserveDetails);
                 console.log('Regions extracted:', regions.length);
             } catch (e) {
                 console.error('Region extraction failed:', e);
@@ -130,7 +131,7 @@ class WatershedProcessor {
      * @param {number} maxSize
      * @returns {ImageData}
      */
-    async preprocessImage(imageData, maxSize) {
+    async preprocessImage(imageData, maxSize, preserveDetails = false) {
         console.log('Preprocessing image:', imageData.width, 'x', imageData.height);
 
         const src = cv.matFromImageData(imageData);
@@ -163,7 +164,11 @@ class WatershedProcessor {
         // Apply bilateral filter (noise reduction, edge preservation)
         console.log('Applying bilateral filter...');
         const filtered = new cv.Mat();
-        cv.bilateralFilter(resized, filtered, 9, 75, 75);
+        if (preserveDetails) {
+            cv.bilateralFilter(resized, filtered, 5, 50, 50);
+        } else {
+            cv.bilateralFilter(resized, filtered, 9, 75, 75);
+        }
         console.log('Bilateral filter applied');
 
         // Convert back to RGBA for canvas
@@ -197,7 +202,7 @@ class WatershedProcessor {
      * @param {string} complexity - 'low' | 'medium' | 'high' | 'extreme'
      * @returns {cv.Mat} Marker image (CV_32S)
      */
-    createMarkers(quantized, labels, numColors, complexity) {
+    createMarkers(quantized, labels, numColors, complexity, preserveDetails = false) {
         console.log('Creating markers from color labels...');
         const width = quantized.cols;
         const height = quantized.rows;
@@ -209,7 +214,10 @@ class WatershedProcessor {
             high: 2,
             extreme: 1
         };
-        const erodeSize = erodeSizes[complexity] || 3;
+        let erodeSize = erodeSizes[complexity] || 3;
+        if (preserveDetails) {
+            erodeSize = Math.max(erodeSize - 1, 1);
+        }
 
         // Create marker image and color mapping
         const markers = new cv.Mat.zeros(height, width, cv.CV_32S);
@@ -362,7 +370,7 @@ class WatershedProcessor {
      * @param {boolean} geometricStyle - Use aggressive polygon simplification
      * @returns {Array} Array of regions
      */
-    extractRegions(watershedMap, quantized, palette, minRegionSize, geometricStyle = false) {
+    extractRegions(watershedMap, quantized, palette, minRegionSize, geometricStyle = false, preserveDetails = false) {
         const regions = [];
         const width = watershedMap.cols;
         const height = watershedMap.rows;
@@ -381,6 +389,90 @@ class WatershedProcessor {
 
         console.log(`Found ${uniqueLabels.size} regions from watershed`);
 
+        // When preserveDetails is active, merge small regions into neighbors
+        // instead of deleting them
+        if (preserveDetails) {
+            // Collect pixel counts per label
+            const labelCounts = {};
+            uniqueLabels.forEach(l => { labelCounts[l] = 0; });
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const l = watershedMap.intAt(y, x);
+                    if (l > 0) labelCounts[l]++;
+                }
+            }
+
+            // Sort small labels by size ascending so smallest merge first
+            const smallLabels = [...uniqueLabels]
+                .filter(l => labelCounts[l] < minRegionSize)
+                .sort((a, b) => labelCounts[a] - labelCounts[b]);
+
+            const dilateKernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
+
+            for (const smallLabel of smallLabels) {
+                // Re-check count (may have grown from earlier merges)
+                let count = 0;
+                const mask = new cv.Mat.zeros(height, width, cv.CV_8UC1);
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        if (watershedMap.intAt(y, x) === smallLabel) {
+                            mask.ucharPtr(y, x)[0] = 255;
+                            count++;
+                        }
+                    }
+                }
+                if (count >= minRegionSize || count === 0) {
+                    mask.delete();
+                    continue;
+                }
+
+                // Dilate mask by 1px to find neighbors
+                const dilated = new cv.Mat();
+                cv.dilate(mask, dilated, dilateKernel);
+
+                // Count neighbor labels in the dilated border
+                const neighborCounts = {};
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        if (dilated.ucharPtr(y, x)[0] === 255 && mask.ucharPtr(y, x)[0] === 0) {
+                            const nl = watershedMap.intAt(y, x);
+                            if (nl > 0 && nl !== smallLabel) {
+                                neighborCounts[nl] = (neighborCounts[nl] || 0) + 1;
+                            }
+                        }
+                    }
+                }
+
+                dilated.delete();
+                mask.delete();
+
+                // Find most frequent neighbor
+                let bestNeighbor = 0;
+                let bestCount = 0;
+                for (const [nl, nc] of Object.entries(neighborCounts)) {
+                    if (nc > bestCount) {
+                        bestCount = nc;
+                        bestNeighbor = parseInt(nl);
+                    }
+                }
+
+                if (bestNeighbor > 0) {
+                    // Reassign all pixels of smallLabel to bestNeighbor
+                    for (let y = 0; y < height; y++) {
+                        for (let x = 0; x < width; x++) {
+                            if (watershedMap.intAt(y, x) === smallLabel) {
+                                watershedMap.intPtr(y, x)[0] = bestNeighbor;
+                            }
+                        }
+                    }
+                    uniqueLabels.delete(smallLabel);
+                }
+            }
+
+            dilateKernel.delete();
+            console.log(`After merging small regions: ${uniqueLabels.size} regions remain`);
+        }
+
         // Extract each region
         uniqueLabels.forEach(label => {
             // Create mask for this region
@@ -396,14 +488,16 @@ class WatershedProcessor {
                 }
             }
 
-            // Skip if region is too small
+            // Skip if region is too small (only applies when not preserveDetails,
+            // since preserveDetails already merged small regions above)
             if (pixelCount < minRegionSize) {
                 mask.delete();
                 return;
             }
 
             // Morphological smoothing: close then open to remove pixel jaggedness
-            const morphKernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+            const morphSize = preserveDetails ? 3 : 5;
+            const morphKernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(morphSize, morphSize));
             cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, morphKernel);
             cv.morphologyEx(mask, mask, cv.MORPH_OPEN, morphKernel);
             morphKernel.delete();

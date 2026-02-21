@@ -21,6 +21,7 @@ const App = {
             showColors: false,
             backgroundColor: '#ffffff',
             geometricStyle: false,
+            preserveDetails: false,
             maxSize: 1024
         },
         batchProcessor: new BatchProcessor()
@@ -156,6 +157,10 @@ const App = {
             this.state.settings.geometricStyle = e.target.checked;
         });
 
+        document.getElementById('preserveDetailsCheck').addEventListener('change', (e) => {
+            this.state.settings.preserveDetails = e.target.checked;
+        });
+
         // Actions
         document.getElementById('generateBtn').addEventListener('click', () => this.generate());
         document.getElementById('downloadSvgBtn').addEventListener('click', () => this.downloadSVG());
@@ -288,15 +293,17 @@ const App = {
         document.getElementById('numberSizeSlider').value = preset.numberSize;
         document.getElementById('numberSizeValue').textContent = preset.numberSize + ' pt';
 
-        // Reset opacity and geometric style on preset change
+        // Reset opacity, geometric style and preserve details on preset change
         this.state.settings.lineOpacity = 1.0;
         this.state.settings.numberOpacity = 1.0;
         this.state.settings.geometricStyle = false;
+        this.state.settings.preserveDetails = false;
         document.getElementById('lineOpacitySlider').value = 1;
         document.getElementById('lineOpacityValue').textContent = '100%';
         document.getElementById('numberOpacitySlider').value = 1;
         document.getElementById('numberOpacityValue').textContent = '100%';
         document.getElementById('geometricStyleCheck').checked = false;
+        document.getElementById('preserveDetailsCheck').checked = false;
 
         document.querySelectorAll('.preset-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.preset === presetName);
